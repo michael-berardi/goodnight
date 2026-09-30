@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Good Night",
+  "version": "0.1.0",
+  "identifier": "com.libertydesignstudio.goodnight",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "Michael Berardi",
+    "copyright": "MIT License",
+    "category": "Utility",
+    "shortDescription": "Warm, dim and schedule your screen.",
+    "longDescription": "Good Night warms your screen after sunset and can dim it all the way to black. It changes the display's colour ramp directly, so it uses no GPU time and draws nothing over your screen.",
+    "homepage": "https://github.com/michael-berardi/goodnight",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "./installer-hooks.nsh"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQwRDg5NzBENTVGNTBBMDYKUldRR0N2VlZEWmZZUUc2VVl2OHFDUGhMN2hBVSsxaklXeWliVDk0ZnZ5ZnZUdHhtU29WcXFZQ3gK",
+      "endpoints": [
+        "https://github.com/michael-berardi/goodnight/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
