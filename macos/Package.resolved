@@ -1,6 +1,15 @@
 {
   "pins" : [
     {
+      "identity" : "carapace",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/michael-berardi/carapace",
+      "state" : {
+        "revision" : "020c9cb5a52ee87e26991f0a84c69c0c9d636d90",
+        "version" : "0.1.0"
+      }
+    },
+    {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",

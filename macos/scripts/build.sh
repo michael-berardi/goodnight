@@ -5,6 +5,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+scripts/build-core.sh
 swift build -c release --arch arm64 --arch x86_64 -Xswiftc -Osize
 bin=.build/apple/Products/Release/GoodNight
 
@@ -19,7 +20,9 @@ cp Resources/Info.plist "$app/Contents/Info.plist"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-swift scripts/icon.swift "$work/icon.png"
+# Compile, then run: the swift interpreter cannot load AppKit symbols on recent toolchains.
+swiftc -O scripts/icon.swift -o "$work/icon-tool"
+"$work/icon-tool" "$work/icon.png"
 set_dir="$work/AppIcon.iconset"
 mkdir "$set_dir"
 for s in 16 32 128 256 512; do

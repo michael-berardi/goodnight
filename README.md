@@ -64,6 +64,8 @@ The tint is built to keep content readable:
 4. **Your calibration is kept.** The tint multiplies the display's existing curve instead of replacing it.
 5. **Smooth changes.** Presets and schedule changes fade over one second. Sliders respond instantly.
 
+One engine runs both apps. The warmth curve, sunrise and sunset, the schedule and the settings live in `core/`, a small Rust crate built on [Carapace](https://github.com/michael-berardi/carapace). The macOS app (SwiftUI) and the Windows app (Tauri) are shells that own only what their platform must: the display, the tray or menu bar, shortcuts and login items. `core/tests/golden-swift.txt` holds the values the original Swift engine produced in eight time zones; the core reproduces them.
+
 Run `"/Applications/Good Night.app/Contents/MacOS/GoodNight" --probe` to print the exact curve and today's sunrise and sunset for your time zone.
 
 ### What it costs
@@ -85,8 +87,9 @@ Good Night has no account and collects nothing. Its only network request is the 
 **macOS** (Xcode 26 or later):
 
 ```sh
+cargo install --git https://github.com/michael-berardi/carapace --tag v0.1.0 cargo-carapace   # once
 cd macos
-scripts/build.sh              # universal app in macos/dist, signed with your Developer ID if present
+scripts/build.sh              # builds the engine, then a universal app in macos/dist, signed with your Developer ID if present
 swift build && .build/debug/GoodNight --probe
 NOTARY_PROFILE=<profile> scripts/release.sh   # notarized DMG and update feed
 ```
@@ -94,8 +97,8 @@ NOTARY_PROFILE=<profile> scripts/release.sh   # notarized DMG and update feed
 **Windows** (Rust and the [Tauri CLI](https://v2.tauri.app/)):
 
 ```sh
+(cd core && cargo test)       # engine tests, including parity with the original Swift curve; any OS
 cd windows/src-tauri
-cargo test                    # curve and sunrise tests, runs on any OS
 cargo tauri build             # on Windows
 cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc   # from macOS or Linux
 cd .. && TAURI_SIGNING_PRIVATE_KEY=<key> scripts/release.sh             # installer and update feed
@@ -104,8 +107,9 @@ cd .. && TAURI_SIGNING_PRIVATE_KEY=<key> scripts/release.sh             # instal
 ## Layout
 
 ```
-macos/     Swift and SwiftUI app: menu bar extra, window, settings, colour-table engine
-windows/   Rust and Tauri app: tray flyout, window, gamma-ramp engine, same curve
+core/      Rust engine shared by both apps: warmth curve, sun, schedule, settings
+macos/     Swift and SwiftUI app: menu bar extra, window, settings, colour tables
+windows/   Rust and Tauri app: tray flyout, window, gamma ramp
 docs/      app icon (icon-1024.png), vector logo mark (mark.svg) and screenshots
 ```
 

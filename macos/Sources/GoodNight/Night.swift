@@ -1,62 +1,95 @@
 import AppKit
+import CarapaceFFI
+import CarapaceKit
+import Combine
 import ServiceManagement
 import SwiftUI
 
-/// App state. The screen is only touched in `render`; timers run only while something changes
-/// (a 1 s transition) or once a minute when following the sun.
+typealias Engine = Store<GoodNightEngine>
+
+/// The macOS shell around the shared engine (core/). The engine decides what the settings mean,
+/// which warmth to show and when; this class owns what only macOS can do: the colour tables,
+/// the 1 s eased transition, wake and display changes, the login item and the Dock policy.
+@MainActor
 final class Night: ObservableObject {
     static let shared = Night()
-    private let store = UserDefaults.standard
+    private let defaults = UserDefaults.standard
 
-    @Published private(set) var enabled: Bool
-    @Published private(set) var followSun: Bool
-    @Published private(set) var level: Double
-    /// Software brightness, 0 (black) … 1. Scales the same colour table, so it costs nothing.
-    @Published private(set) var brightness: Double
-    @Published private(set) var sunCaption = ""
+    let engine: Engine
     @Published var loginError: String?
 
-    static let minBrightness = 0.0, launchBrightness = 0.3
+    static let minBrightness = 0.0
 
-    private var manualLevel: Double, dayLevel: Double, nightLevel: Double
     private var shown = (level: 0.0, bright: 1.0)
-    private var transition: Timer?, clock: Timer?, pending: DispatchWorkItem?
+    private var started = false
+    private var transition: Timer?, pending: DispatchWorkItem?
+    private var forwarding: AnyCancellable?
     var openMain: () -> Void = {}
 
     private init() {
-        store.register(defaults: ["enabled": true, "followSun": true, "manualLevel": 0.45, "dayLevel": 0.0,
-                                  "nightLevel": 0.68, "brightness": 1.0, "showInMenuBar": true, "showInDock": true])
-        enabled = store.bool(forKey: "enabled")
-        followSun = store.bool(forKey: "followSun")
-        manualLevel = store.double(forKey: "manualLevel")
-        dayLevel = store.double(forKey: "dayLevel")
-        nightLevel = store.double(forKey: "nightLevel")
-        level = manualLevel
-        // Never start on a screen too dark to find the controls.
-        brightness = max(Night.launchBrightness, store.double(forKey: "brightness"))
-        if !store.bool(forKey: "showInMenuBar") && !store.bool(forKey: "showInDock") { store.set(true, forKey: "showInMenuBar") }
+        defaults.register(defaults: ["enabled": true, "followSun": true, "manualLevel": 0.45, "dayLevel": 0.0,
+                                     "nightLevel": 0.68, "brightness": 1.0, "showInMenuBar": true, "showInDock": true])
+        if !defaults.bool(forKey: "showInMenuBar") && !defaults.bool(forKey: "showInDock") { defaults.set(true, forKey: "showInMenuBar") }
+        let settings = GoodNightEngine.Settings(
+            enabled: defaults.bool(forKey: "enabled"), followSun: defaults.bool(forKey: "followSun"),
+            manualLevel: defaults.double(forKey: "manualLevel"), dayLevel: defaults.double(forKey: "dayLevel"),
+            nightLevel: defaults.double(forKey: "nightLevel"), brightness: defaults.double(forKey: "brightness"))
+        let zone = TimeZone.current
+        do {
+            engine = try Engine(
+                backend: RustBackend(),
+                config: .init(settings: settings, timeZone: zone.identifier, utcOffsetSeconds: zone.secondsFromGMT()))
+        } catch {
+            // The engine ships inside the app; failing to start it is a broken install, so say so loudly.
+            NSLog("GoodNight: the engine failed to start: \(error.localizedDescription)")
+            fatalError("Good Night's engine failed to start: \(error.localizedDescription)")
+        }
+        // Views observe Night; Night re-publishes whenever the engine's state changes.
+        forwarding = engine.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        engine.onEvent = { [weak self] in self?.handle($0) }
+        engine.onFault = { NSLog("GoodNight: engine fault: \($0)") }
     }
 
-    var kelvin: Int { Int((Warmth.kelvin(level) / 50).rounded() * 50) }
+    // MARK: Read
+
+    private var state: GoodNightEngine.State { engine.state }
+    var enabled: Bool { state.enabled }
+    var followSun: Bool { state.followSun }
+    var level: Double { state.level }
+    var brightness: Double { state.brightness }
+    var kelvin: Int { state.kelvin }
     var effectiveLevel: Double { enabled ? level : 0 }
+    var placeName: String { state.placeName }
+    var sunrise: Date { Date(timeIntervalSince1970: state.sunrise / 1000) }
+    var sunset: Date { Date(timeIntervalSince1970: state.sunset / 1000) }
     var title: String { enabled ? "\(kelvin.formatted())K" : "Off" }
     var subtitle: String {
         guard enabled else { return "Your screen is untouched" }
-        let name = Preset.nearest(level).name
-        return brightness < 0.995 ? "\(name) · \(Int((brightness * 100).rounded()))% brightness" : name
+        return brightness < 0.995 ? "\(state.preset) · \(Int((brightness * 100).rounded()))% brightness" : state.preset
     }
+
+    /// Plain description of the next change, e.g. "Warms at 7:12 PM".
+    var sunCaption: String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return "\(state.nextWarms ? "Warms" : "Cools") at \(f.string(from: Date(timeIntervalSince1970: state.nextAt / 1000)))"
+    }
+
+    // MARK: Lifecycle
 
     func start() {
         Display.capture()
         CGDisplayRegisterReconfigurationCallback({ _, flags, _ in
-            if !flags.contains(.beginConfigurationFlag) { DispatchQueue.main.async { Night.shared.displaysChanged() } }
+            if !flags.contains(.beginConfigurationFlag) { DispatchQueue.main.async { MainActor.assumeIsolated { Night.shared.displaysChanged() } } }
         }, nil)
         let ws = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
-            ws.addObserver(forName: name, object: nil, queue: .main) { _ in Night.shared.reapplySoon() }
+            ws.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { Night.shared.wake() } }
         }
-        if followSun { level = autoLevel }
-        schedule()
+        NotificationCenter.default.addObserver(forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { Night.shared.timeZoneChanged() }
+        }
+        started = true
         render(animated: true)
     }
 
@@ -65,51 +98,34 @@ final class Night: ObservableObject {
         Display.restore()
     }
 
-    // MARK: Intent
+    // MARK: Intent (each forwards one action to the engine and applies the result before returning,
+    // so callers can wrap it in withAnimation)
 
-    func setLevel(_ l: Double, animated: Bool) {
-        level = clamp(l)
-        if followSun { if Sun.nightness() >= 0.5 { nightLevel = level } else { dayLevel = level } } else { manualLevel = level }
-        store.set(manualLevel, forKey: "manualLevel"); store.set(dayLevel, forKey: "dayLevel"); store.set(nightLevel, forKey: "nightLevel")
-        turnOn()
-        render(animated: animated)
-    }
-
-    func setBrightness(_ b: Double, animated: Bool) {
-        brightness = clamp(b, Night.minBrightness, 1)
-        store.set(brightness, forKey: "brightness")
-        turnOn()
-        render(animated: animated)
-    }
+    func setLevel(_ l: Double, animated: Bool) { engine.sendSync(.setLevel(level: l, animated: animated)) }
+    func setBrightness(_ b: Double, animated: Bool) { engine.sendSync(.setBrightness(value: b, animated: animated)) }
+    func setEnabled(_ on: Bool) { engine.sendSync(.setEnabled(on: on)) }
+    func setFollowSun(_ on: Bool) { engine.sendSync(.setFollowSun(on: on)) }
 
     func nudge(level dl: Double = 0, brightness db: Double = 0) {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            if dl != 0 { setLevel(level + dl, animated: true) }
-            if db != 0 { setBrightness(brightness + db, animated: true) }
+        withAnimation(.easeInOut(duration: 0.25)) { engine.sendSync(.nudge(level: dl, brightness: db)) }
+    }
+
+    // MARK: Engine events
+
+    private func handle(_ event: GoodNightEngine.Event) {
+        switch event {
+        case let .render(animated):
+            if started { render(animated: animated) }
+        case let .persist(s):
+            defaults.set(s.enabled, forKey: "enabled"); defaults.set(s.followSun, forKey: "followSun")
+            defaults.set(s.manualLevel, forKey: "manualLevel"); defaults.set(s.dayLevel, forKey: "dayLevel")
+            defaults.set(s.nightLevel, forKey: "nightLevel"); defaults.set(s.brightness, forKey: "brightness")
         }
-    }
-
-    func setEnabled(_ on: Bool) {
-        enabled = on
-        store.set(on, forKey: "enabled")
-        render(animated: true)
-    }
-
-    func setFollowSun(_ on: Bool) {
-        followSun = on
-        store.set(on, forKey: "followSun")
-        level = on ? autoLevel : manualLevel
-        schedule()
-        render(animated: true)
-    }
-
-    private func turnOn() {
-        if !enabled { enabled = true; store.set(true, forKey: "enabled") }
     }
 
     // MARK: Presence — Dock, menu bar or both (stored as "showInDock" / "showInMenuBar", one always on).
 
-    var showInDock: Bool { store.bool(forKey: "showInDock") }
+    var showInDock: Bool { defaults.bool(forKey: "showInDock") }
 
     func applyDockPolicy() {
         NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
@@ -129,35 +145,11 @@ final class Night: ObservableObject {
         objectWillChange.send()
     }
 
-    // MARK: Schedule
-
-    private var autoLevel: Double {
-        dayLevel + (nightLevel - dayLevel) * Sun.nightness()
-    }
-
-    private func schedule() {
-        clock?.invalidate()
-        sunCaption = Sun.nextChange()
-        guard followSun else { return }
-        let t = Timer(timeInterval: 60, repeats: true) { _ in Night.shared.tick() }
-        t.tolerance = 20
-        RunLoop.main.add(t, forMode: .common)
-        clock = t
-    }
-
-    private func tick() {
-        sunCaption = Sun.nextChange()
-        let target = autoLevel
-        if abs(target - level) > 0.0005 {
-            withAnimation(.easeInOut(duration: 1)) { level = target }
-        }
-        render(animated: true)
-    }
-
     // MARK: Screen
 
     private func render(animated: Bool) {
-        let target = enabled ? (level: level, bright: brightness) : (level: 0.0, bright: 1.0)
+        let t = state.target
+        let target = (level: t.level, bright: t.brightness)
         transition?.invalidate()
         guard animated, abs(target.level - shown.level) + abs(target.bright - shown.bright) > 0.001 else {
             shown = target
@@ -165,32 +157,44 @@ final class Night: ObservableObject {
             return
         }
         let from = shown, start = CACurrentMediaTime(), duration = 1.0
-        let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
-            guard let self else { return timer.invalidate() }
-            let p = min(1, (CACurrentMediaTime() - start) / duration), e = smoothstep(0, 1, p)
-            self.shown = (from.level + (target.level - from.level) * e, from.bright + (target.bright - from.bright) * e)
-            self.push()
-            if p >= 1 { timer.invalidate() }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { return timer.invalidate() }
+                let p = min(1, (CACurrentMediaTime() - start) / duration), e = smoothstep(0, 1, p)
+                self.shown = (from.level + (target.level - from.level) * e, from.bright + (target.bright - from.bright) * e)
+                self.push()
+                if p >= 1 { timer.invalidate() }
+            }
         }
-        RunLoop.main.add(t, forMode: .common)
-        transition = t
+        RunLoop.main.add(timer, forMode: .common)
+        transition = timer
     }
 
     private func push() {
-        Display.apply(Warmth.gains(shown.level), dim: Warmth.dim(shown.level), brightness: shown.bright)
+        let (level, bright) = shown
+        Display.apply { r, g, b in
+            guard case let .ramp(r, g, b)? = try? self.engine.query(.ramp(level: level, brightness: bright, r: r, g: g, b: b)) else { return nil }
+            return (r, g, b)
+        }
     }
 
     private func displaysChanged() {
         pending?.cancel()
-        let work = DispatchWorkItem { Display.capture(); Night.shared.push() }
+        let work = DispatchWorkItem { MainActor.assumeIsolated { Display.capture(); Night.shared.push() } }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     /// macOS can reset colour tables shortly after wake; apply again once things settle.
-    private func reapplySoon() {
+    private func wake() {
+        engine.sendSync(.refresh)
         for delay in [0.5, 2.5] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { Night.shared.push() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { Night.shared.push() } }
         }
+    }
+
+    private func timeZoneChanged() {
+        let zone = TimeZone.current
+        engine.sendSync(.setTimeZone(zone: zone.identifier, utcOffsetSeconds: zone.secondsFromGMT()))
     }
 }

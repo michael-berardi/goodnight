@@ -1,42 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod gamma;
-mod sun;
-mod warmth;
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-use warmth::{clamp, smoothstep};
-
-/// Saved settings. Same meaning as the macOS app's defaults.
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", default)]
-struct Settings {
-    enabled: bool,
-    follow_sun: bool,
-    manual_level: f64,
-    day_level: f64,
-    night_level: f64,
-    brightness: f64,
-    auto_update: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings { enabled: true, follow_sun: true, manual_level: 0.45, day_level: 0.0, night_level: 0.68, brightness: 1.0, auto_update: true }
-    }
-}
+use goodnight_core::carapace::{Notice, Runtime};
+use goodnight_core::warmth::{self, smoothstep};
+use goodnight_core::{Action, Config, Event, GoodNight, Settings};
 
 /// What the UI shows. Times are unix milliseconds so the UI formats them in the user's locale.
+/// Almost everything comes from the shared engine (`goodnight-core`); the rest is Windows-only.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct View {
@@ -45,7 +27,7 @@ struct View {
     level: f64,
     brightness: f64,
     kelvin: u32,
-    preset: &'static str,
+    preset: String,
     place_name: String,
     sunrise: f64,
     sunset: f64,
@@ -65,28 +47,29 @@ enum Msg {
 }
 
 struct State {
-    settings: Mutex<Settings>,
-    place: sun::Place,
+    /// The shared engine. Dropping it stops its thread.
+    core: Runtime<GoodNight>,
     path: PathBuf,
     tx: Mutex<Sender<Msg>>,
     error: Mutex<Option<String>>,
     update: Mutex<Option<String>>,
 }
 
-const LAUNCH_BRIGHTNESS: f64 = 0.3;
-
 impl State {
-    fn level(&self, s: &Settings) -> f64 {
-        if s.follow_sun {
-            s.day_level + (s.night_level - s.day_level) * sun::nightness(&self.place)
-        } else {
-            s.manual_level
-        }
+    fn core_state(&self) -> goodnight_core::State {
+        serde_json::from_str(&self.core.snapshot()).expect("goodnight-core always writes valid state JSON")
     }
 
+    /// (level, brightness) the screen should show now.
     fn target(&self) -> (f64, f64) {
-        let s = self.settings.lock().unwrap();
-        if s.enabled { (self.level(&s), s.brightness) } else { (0.0, 1.0) }
+        let t = self.core_state().target;
+        (t.level, t.brightness)
+    }
+
+    fn act(&self, action: Action) {
+        if let Err(e) = self.core.dispatch_wait(action) {
+            eprintln!("goodnight: {e}");
+        }
     }
 
     fn save(&self, s: &Settings) {
@@ -108,43 +91,55 @@ impl State {
 
 fn view(app: &AppHandle) -> View {
     let st = app.state::<State>();
-    let s = st.settings.lock().unwrap().clone();
-    let level = st.level(&s);
-    let today = chrono::Local::now().date_naive();
-    let (rise, set) = sun::events(&st.place, today);
-    let (next_warms, next_at) = sun::next_change(&st.place);
+    let c = st.core_state();
     let error = st.error.lock().unwrap().clone();
     let update = st.update.lock().unwrap().clone();
     View {
-        enabled: s.enabled,
-        follow_sun: s.follow_sun,
-        level,
-        brightness: s.brightness,
-        kelvin: ((warmth::kelvin(level) / 50.0).round() * 50.0) as u32,
-        preset: warmth::nearest(level).name,
-        place_name: st.place.name.clone(),
-        sunrise: rise * 1000.0,
-        sunset: set * 1000.0,
-        next_warms,
-        next_at: next_at * 1000.0,
+        enabled: c.enabled,
+        follow_sun: c.follow_sun,
+        level: c.level,
+        brightness: c.brightness,
+        kelvin: c.kelvin,
+        preset: c.preset,
+        place_name: c.place_name,
+        sunrise: c.sunrise,
+        sunset: c.sunset,
+        next_warms: c.next_warms,
+        next_at: c.next_at,
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         error,
         version: env!("CARGO_PKG_VERSION"),
-        auto_update: s.auto_update,
+        auto_update: c.auto_update,
         update,
     }
 }
 
-fn changed(app: &AppHandle, animated: bool) {
-    let st = app.state::<State>();
-    st.save(&st.settings.lock().unwrap());
-    st.render(animated);
+/// Tell the UI and the tray about the latest state.
+fn publish(app: &AppHandle) {
     let v = view(app);
     let _ = app.emit("state", &v);
     if let Some(tray) = app.tray_by_id("main") {
         let tip = if v.enabled { format!("Good Night · {}K · {}", v.kelvin, v.preset) } else { "Good Night · Off".into() };
         let _ = tray.set_tooltip(Some(tip));
     }
+}
+
+/// The engine speaks through notices: new state for the UI, and events for the shell.
+fn on_notice(app: &AppHandle, notice: Notice<'_>) {
+    match notice {
+        Notice::State(_) => publish(app),
+        Notice::Event(json) => match serde_json::from_str::<Event>(json) {
+            Ok(Event::Render { animated }) => app.state::<State>().render(animated),
+            Ok(Event::Persist { settings }) => app.state::<State>().save(&settings),
+            Err(e) => eprintln!("goodnight: unreadable engine event {json}: {e}"),
+        },
+        Notice::Fault(text) => eprintln!("goodnight: engine fault: {text}"),
+    }
+}
+
+/// Zone name and UTC offset of the system time zone right now.
+fn system_zone() -> (String, i32) {
+    (iana_time_zone::get_timezone().unwrap_or_default(), chrono::Local::now().offset().local_minus_utc())
 }
 
 // MARK: Commands
@@ -154,57 +149,52 @@ fn state(app: AppHandle) -> View {
     view(&app)
 }
 
+/// The warmth curve sampled from the engine, so the UI draws exactly what the screen shows.
+#[derive(Serialize)]
+struct Curve {
+    n: usize,
+    kelvin: Vec<f64>,
+    tint: Vec<[f64; 3]>,
+}
+
+#[tauri::command]
+fn warmth_curve() -> Curve {
+    const N: usize = 401;
+    let (kelvin, tint) = warmth::curve(N);
+    Curve { n: N, kelvin, tint }
+}
+
 #[tauri::command]
 fn set_level(app: AppHandle, level: f64, animated: bool) {
-    let st = app.state::<State>();
-    {
-        let mut s = st.settings.lock().unwrap();
-        let l = clamp(level, 0.0, 1.0);
-        if s.follow_sun {
-            if sun::nightness(&st.place) >= 0.5 { s.night_level = l } else { s.day_level = l }
-        } else {
-            s.manual_level = l;
-        }
-        s.enabled = true;
-    }
-    changed(&app, animated);
+    app.state::<State>().act(Action::SetLevel { level, animated });
 }
 
 #[tauri::command]
 fn set_brightness(app: AppHandle, value: f64, animated: bool) {
-    {
-        let st = app.state::<State>();
-        let mut s = st.settings.lock().unwrap();
-        s.brightness = clamp(value, 0.0, 1.0);
-        s.enabled = true;
-    }
-    changed(&app, animated);
+    app.state::<State>().act(Action::SetBrightness { value, animated });
 }
 
 #[tauri::command]
 fn set_enabled(app: AppHandle, on: bool) {
-    app.state::<State>().settings.lock().unwrap().enabled = on;
-    changed(&app, true);
+    app.state::<State>().act(Action::SetEnabled { on });
 }
 
 #[tauri::command]
 fn set_follow_sun(app: AppHandle, on: bool) {
-    app.state::<State>().settings.lock().unwrap().follow_sun = on;
-    changed(&app, true);
+    app.state::<State>().act(Action::SetFollowSun { on });
 }
 
 #[tauri::command]
 fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
     let al = app.autolaunch();
     let r = if on { al.enable() } else { al.disable() };
-    changed(&app, false);
+    publish(&app);
     r.map_err(|e| format!("Couldn't change Start with Windows: {e}"))
 }
 
 #[tauri::command]
 fn set_auto_update(app: AppHandle, on: bool) {
-    app.state::<State>().settings.lock().unwrap().auto_update = on;
-    changed(&app, false);
+    app.state::<State>().act(Action::SetAutoUpdate { on });
 }
 
 /// Looks for a newer signed release. Returns its version, if any.
@@ -244,17 +234,7 @@ fn quit(app: AppHandle) {
 }
 
 fn nudge(app: &AppHandle, level: f64, brightness: f64) {
-    let st = app.state::<State>();
-    let (l, b) = {
-        let s = st.settings.lock().unwrap();
-        (st.level(&s) + level, s.brightness + brightness)
-    };
-    if level != 0.0 {
-        set_level(app.clone(), l, true);
-    }
-    if brightness != 0.0 {
-        set_brightness(app.clone(), b, true);
-    }
+    app.state::<State>().act(Action::Nudge { level, brightness });
 }
 
 // MARK: Windows
@@ -343,7 +323,7 @@ fn toggle_flyout(app: &AppHandle, click: PhysicalPosition<f64>) {
 /// replace it.
 fn renderer(app: AppHandle, rx: mpsc::Receiver<Msg>) {
     let push = |app: &AppHandle, (l, b): (f64, f64)| {
-        let r = gamma::apply(warmth::gains(l), warmth::dim(l), b);
+        let r = gamma::apply(l, b);
         let st = app.state::<State>();
         let mut err = st.error.lock().unwrap();
         if r.as_ref().err() != err.as_ref() {
@@ -359,6 +339,7 @@ fn renderer(app: AppHandle, rx: mpsc::Receiver<Msg>) {
     let mut anim: Option<((f64, f64), (f64, f64), Instant)> = None;
     let mut displays = gamma::display_count();
     let mut last_tick = Instant::now();
+    let mut last_zone = system_zone();
     loop {
         let wait = if anim.is_some() { Duration::from_millis(16) } else { Duration::from_secs(60) };
         match rx.recv_timeout(wait) {
@@ -393,13 +374,14 @@ fn renderer(app: AppHandle, rx: mpsc::Receiver<Msg>) {
                 displays = now;
                 gamma::capture();
             }
-            let target = app.state::<State>().target();
-            if (target.0 - shown.0).abs() + (target.1 - shown.1).abs() > 0.0005 {
-                anim = Some((shown, target, Instant::now()));
-                let _ = app.emit("state", view(&app));
-            } else {
-                push(&app, shown);
+            // The engine follows the sun on its own clock; the shell tells it when the time zone moves.
+            let zone = system_zone();
+            if zone != last_zone {
+                app.state::<State>().act(Action::SetTimeZone { zone: zone.0.clone(), utc_offset_seconds: zone.1 });
+                last_zone = zone;
             }
+            // Games and driver resets can replace the ramp: put ours back.
+            push(&app, shown);
         }
     }
 }
@@ -440,24 +422,26 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             state, set_level, set_brightness, set_enabled, set_follow_sun, set_autostart, set_auto_update,
-            check_update, install_update, open_main, quit
+            check_update, install_update, open_main, quit, warmth_curve
         ])
         .setup(move |app| {
             let path = app.path().app_config_dir()?.join("settings.json");
-            let mut settings: Settings = std::fs::read(&path)
+            let settings: Settings = std::fs::read(&path)
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).map_err(|e| eprintln!("goodnight: settings unreadable, using defaults: {e}")).ok())
                 .unwrap_or_default();
-            // Never start on a screen too dark to find the controls.
-            settings.brightness = settings.brightness.max(LAUNCH_BRIGHTNESS);
+            let (time_zone, utc_offset_seconds) = system_zone();
+            let core = Runtime::<GoodNight>::start(Config { settings, time_zone, utc_offset_seconds, fixed_now: None });
             app.manage(State {
-                settings: Mutex::new(settings),
-                place: sun::place(),
+                core,
                 path,
                 tx: Mutex::new(tx.clone()),
                 error: Mutex::new(None),
                 update: Mutex::new(None),
             });
+            // Subscribing replays what the engine said while starting (the first render).
+            let notice_app = app.handle().clone();
+            app.state::<State>().core.subscribe(move |n| on_notice(&notice_app, n));
 
             // Daily update check, first one a minute after launch.
             let handle = app.handle().clone();
@@ -466,7 +450,7 @@ fn main() {
                 loop {
                     tokio_sleep(wait).await;
                     wait = Duration::from_secs(24 * 3600);
-                    if handle.state::<State>().settings.lock().unwrap().auto_update {
+                    if handle.state::<State>().core_state().auto_update {
                         if let Err(e) = check_update(handle.clone()).await {
                             eprintln!("goodnight: {e}");
                         }
@@ -499,7 +483,7 @@ fn main() {
                 .on_menu_event(|app, e| match e.id().as_ref() {
                     "open" => show_main(app),
                     "toggle" => {
-                        let on = app.state::<State>().settings.lock().unwrap().enabled;
+                        let on = app.state::<State>().core_state().enabled;
                         set_enabled(app.clone(), !on);
                     }
                     "quit" => quit(app.clone()),
@@ -511,7 +495,7 @@ fn main() {
                     }
                 })
                 .build(app)?;
-            changed(app.handle(), true);
+            publish(app.handle());
 
             if !hidden {
                 show_main(app.handle());

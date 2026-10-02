@@ -6,7 +6,7 @@
 //! Unlike macOS, Windows keeps a ramp after the process exits, so `restore` runs on
 //! quit and from the panic hook.
 
-use crate::warmth::knee;
+use goodnight_core::warmth;
 
 #[cfg(windows)]
 mod imp {
@@ -101,19 +101,20 @@ pub fn capture() -> usize {
     0
 }
 
-/// Applies gains, highlight dim and brightness. Returns a plain-language error naming the cause.
-pub fn apply(gain: [f64; 3], dim: f64, brightness: f64) -> Result<(), String> {
+/// Applies a warmth level and brightness through the engine's colour pipeline (shared with
+/// macOS). Returns a plain-language error naming the cause.
+pub fn apply(level: f64, brightness: f64) -> Result<(), String> {
     #[cfg(windows)]
     {
         let screens = imp::SCREENS.lock().unwrap();
         let mut failed = Vec::new();
         for s in screens.iter() {
+            let base: Vec<Vec<f64>> = s.base.iter().map(|ch| ch.iter().map(|v| *v as f64 / 65535.0).collect()).collect();
+            let tint = warmth::ramp(level, brightness, [&base[0], &base[1], &base[2]]);
             let mut r = [[0u16; 256]; 3];
             for ch in 0..3 {
-                let k = gain[ch] * brightness;
                 for i in 0..256 {
-                    let e = s.base[ch][i] as f64 / 65535.0;
-                    r[ch][i] = (knee(e, dim) * k * 65535.0).round().clamp(0.0, 65535.0) as u16;
+                    r[ch][i] = (tint[ch][i] * 65535.0).round().clamp(0.0, 65535.0) as u16;
                 }
             }
             if imp::with_dc(&s.device, |dc| imp::set(dc, &r)) != Some(true) {
@@ -130,7 +131,7 @@ pub fn apply(gain: [f64; 3], dim: f64, brightness: f64) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        let _ = (gain, dim, brightness, knee as fn(f64, f64) -> f64);
+        let _ = (level, brightness, warmth::ramp as fn(f64, f64, [&[f64]; 3]) -> [Vec<f64>; 3]);
         Ok(())
     }
 }

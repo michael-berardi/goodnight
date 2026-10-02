@@ -6,27 +6,20 @@ const $ = (id) => document.getElementById(id);
 const view = new URLSearchParams(location.search).get("view") || "main";
 document.body.dataset.view = view;
 
-// Same curve as the Rust engine (src-tauri/src/warmth.rs), for colours in the UI.
 const clamp = (x, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
-const kelvin = (l) => 6500 * Math.pow(1200 / 6500, l);
-const dim = (l) => 1 - 0.42 * smoothstep(0.7, 1, l);
-function whitePoint(t) {
-  const u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t * t) / (1 + 8.42420235e-4 * t + 7.08145163e-7 * t * t);
-  const v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t * t) / (1 - 2.89741816e-5 * t + 1.61456053e-7 * t * t);
-  const d = 2 * u - 8 * v + 4, x = (3 * u) / d, y = (2 * v) / d, X = x / y, Z = (1 - x - y) / y;
-  return [3.2406 * X - 1.5372 - 0.4986 * Z, -0.9689 * X + 1.8758 + 0.0415 * Z, 0.0557 * X - 0.204 + 1.057 * Z].map((c) => Math.max(0, c));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Colours come from the shared engine (core/src/warmth.rs), sampled once at start-up by the
+// `warmth_curve` command. Between samples, interpolation is visually exact.
+let CURVE = null;
+function sample(l, at) {
+  const x = clamp(l) * (CURVE.n - 1), i = Math.min(Math.floor(x), CURVE.n - 2), t = x - i;
+  return at(i, t);
 }
-function gains(l) {
-  const c = whitePoint(kelvin(l)), w = whitePoint(6500);
-  let g = c.map((v, i) => v / w[i]);
-  const m = Math.max(...g);
-  g = g.map((v) => Math.pow(v / m, 1 / 2.2));
-  g[2] = Math.max(0.15, g[2]);
-  return g;
-}
+const kelvin = (l) => sample(l, (i, t) => lerp(CURVE.kelvin[i], CURVE.kelvin[i + 1], t));
 const rgb = (c) => `rgb(${c.map((v) => Math.round(clamp(v) * 255)).join(",")})`;
-const tint = (l) => rgb(gains(l).map((v) => v * dim(l)));
+const tint = (l) => rgb(sample(l, (i, t) => CURVE.tint[i].map((v, k) => lerp(v, CURVE.tint[i + 1][k], t))));
 
 const PRESETS = [
   { name: "Day", level: 0, icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>' },
@@ -197,13 +190,19 @@ function build() {
   if (new URLSearchParams(location.search).has("sheet")) $("sheet").hidden = false;
 }
 
-build();
-listen("state", (e) => { if (!dragging) { S = e.payload; render(); } });
-invoke("state").then((s) => {
+invoke("warmth_curve").then((c) => {
+  CURVE = c;
+  build();
+  listen("state", (e) => { if (!dragging) { S = e.payload; render(); } });
+  return invoke("state");
+}).then((s) => {
   S = s; skyLevel = s.enabled ? s.level : 0; drawSky(skyLevel); render();
   // The flyout is as tall as its content.
   if (view === "flyout") {
     const card = $("card");
     win.setSize(new window.__TAURI__.dpi.LogicalSize(320, Math.ceil(card.offsetTop + card.offsetHeight)));
   }
+}).catch((e) => {
+  document.body.textContent = `Good Night could not start: ${e}`;
+  console.error(e);
 });

@@ -36,7 +36,7 @@ struct GoodNightApp: App {
 
 /// Hands SwiftUI's "open window" action to the app delegate, so the Dock and the menu bar
 /// can bring the window back.
-func keepWindowOpener(_ openWindow: OpenWindowAction) {
+@MainActor func keepWindowOpener(_ openWindow: OpenWindowAction) {
     Night.shared.openMain = {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
@@ -142,7 +142,7 @@ enum HotKeys {
             var id = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-            DispatchQueue.main.async { HotKeys.fire(id.id) }
+            DispatchQueue.main.async { MainActor.assumeIsolated { HotKeys.fire(id.id) } }
             return noErr
         }, 1, &spec, nil, nil)
         let mods = UInt32(controlKey | optionKey | cmdKey)
@@ -155,7 +155,7 @@ enum HotKeys {
         }
     }
 
-    private static func fire(_ id: UInt32) {
+    @MainActor private static func fire(_ id: UInt32) {
         let n = Night.shared
         switch id {
         case 0: n.nudge(brightness: 0.1)
@@ -167,18 +167,20 @@ enum HotKeys {
 }
 
 /// `GoodNight --probe` prints the tint curve and schedule, so both can be checked without the UI.
+@MainActor
 enum Probe {
     static func run() {
-        let e = Sun.events(on: Date()), f = DateFormatter()
+        let n = Night.shared, f = DateFormatter()
         f.timeStyle = .short
-        print(String(format: "Place %.2f, %.2f (%@) · sunrise %@ · sunset %@ · nightness %.2f",
-                     Sun.place.lat, Sun.place.lon, Sun.placeName, f.string(from: e.rise), f.string(from: e.set), Sun.nightness()))
+        print(String(format: "%@ · sunrise %@ · sunset %@ · %@", n.placeName, f.string(from: n.sunrise), f.string(from: n.sunset), n.sunCaption))
         print("preset    level  kelvin   gain r  gain g  gain b   white  mid-grey  shadow")
+        let ramp = (0..<256).map { Double($0) / 255 }
         for p in Preset.all {
-            let g = Warmth.gains(p.level), d = Float(Warmth.dim(p.level))
+            guard case let .warmth(kelvin, _, _, gains, _)? = try? n.engine.query(.warmth(level: p.level)),
+                  case let .ramp(r, _, _)? = try? n.engine.query(.ramp(level: p.level, brightness: 1, r: ramp, g: ramp, b: ramp)) else { continue }
             print(String(format: "%@ %5.2f  %5.0fK   %.3f   %.3f   %.3f    %.3f   %.3f     %.3f",
-                         p.name.padding(toLength: 9, withPad: " ", startingAt: 0), p.level, Warmth.kelvin(p.level),
-                         g.r, g.g, g.b, Display.knee(1, d), Display.knee(0.5, d), Display.knee(0.1, d)))
+                         p.name.padding(toLength: 9, withPad: " ", startingAt: 0), p.level, kelvin,
+                         gains[0], gains[1], gains[2], r[255] / gains[0], r[128] / gains[0], r[26] / gains[0]))
         }
     }
 }

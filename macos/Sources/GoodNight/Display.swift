@@ -26,23 +26,24 @@ enum Display {
         }
     }
 
-    /// `dim` is where full white lands. Instead of scaling every level equally, `e · dim^e`
-    /// pulls highlights down and leaves shadows at full contrast, so dark text and dark-mode
-    /// UI stay readable while bright pages stop glaring.
-    static func knee(_ e: CGGammaValue, _ dim: CGGammaValue) -> CGGammaValue { e * pow(dim, e) }
-
-    /// `brightness` scales the gamma-encoded signal, which tracks perceived lightness closely,
-    /// so the slider feels even from full down to black.
-    static func apply(_ gain: (r: Double, g: Double, b: Double), dim: Double, brightness: Double) {
-        let d = CGGammaValue(dim), k = CGGammaValue(brightness)
-        let gr = CGGammaValue(gain.r) * k, gg = CGGammaValue(gain.g) * k, gb = CGGammaValue(gain.b) * k
+    /// Applies a tint to every display. `ramp` receives a display's own calibration curve
+    /// (three tables, 0…1) and returns the table to set; the colour pipeline itself lives in the
+    /// engine, shared with Windows. Returns false if any display could not be set.
+    @discardableResult
+    static func apply(_ ramp: (_ r: [Double], _ g: [Double], _ b: [Double]) -> (r: [Double], g: [Double], b: [Double])?) -> Bool {
+        var ok = true
         for (id, t) in base {
-            let r = t.r.map { knee($0, d) * gr }
-            let g = t.g.map { knee($0, d) * gg }
-            let b = t.b.map { knee($0, d) * gb }
+            guard let out = ramp(t.r.map(Double.init), t.g.map(Double.init), t.b.map(Double.init)),
+                  out.r.count == t.r.count, out.g.count == t.g.count, out.b.count == t.b.count else {
+                NSLog("GoodNight: the engine returned no usable ramp for display \(id)")
+                ok = false
+                continue
+            }
+            let r = out.r.map(CGGammaValue.init), g = out.g.map(CGGammaValue.init), b = out.b.map(CGGammaValue.init)
             let err = CGSetDisplayTransferByTable(id, UInt32(r.count), r, g, b)
-            if err != .success { NSLog("GoodNight: cannot set colour table for display \(id) (CGError \(err.rawValue))") }
+            if err != .success { NSLog("GoodNight: cannot set colour table for display \(id) (CGError \(err.rawValue))"); ok = false }
         }
+        return ok
     }
 
     static func restore() { CGDisplayRestoreColorSyncSettings() }

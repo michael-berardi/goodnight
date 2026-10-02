@@ -161,7 +161,7 @@ struct PresetRow: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(p.name) · \(Int((Warmth.kelvin(p.level) / 50).rounded() * 50))K")
+                .help("\(p.name) · \(Warmth.kelvinLabel(p.level))K")
             }
         }
     }
@@ -333,7 +333,7 @@ struct SettingsView: View {
     @AppStorage("showInMenuBar") private var showInMenuBar = true
     @AppStorage("showInDock") private var showInDock = true
     var body: some View {
-        let e = Sun.events(on: Date()), f = DateFormatter()
+        let f = DateFormatter()
         let _ = f.timeStyle = .short
         Form {
             Section {
@@ -345,8 +345,8 @@ struct SettingsView: View {
             }
             Section("Schedule") {
                 Toggle("Follow the sun", isOn: Binding(get: { night.followSun }, set: { v in withAnimation(fade) { night.setFollowSun(v) } }))
-                LabeledContent("Location", value: Sun.placeName)
-                LabeledContent("Today", value: "Sunrise \(f.string(from: e.rise)) · Sunset \(f.string(from: e.set))")
+                LabeledContent("Location", value: night.placeName)
+                LabeledContent("Today", value: "Sunrise \(f.string(from: night.sunrise)) · Sunset \(f.string(from: night.sunset))")
             }
             Section("Updates") {
                 Toggle("Check for updates automatically", isOn: Binding(get: { updates.automatic }, set: { updates.automatic = $0 }))
