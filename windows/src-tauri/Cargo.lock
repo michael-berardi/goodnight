@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "goodnight"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "goodnight-core",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "goodnight-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "carapace",
  "schemars 1.2.2",

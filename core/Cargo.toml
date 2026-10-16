@@ -1,7 +1,7 @@
 [package]
 name = "goodnight-core"
 description = "Good Night's engine: warmth curve, sunrise and sunset, schedule and settings. One implementation for macOS and Windows."
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["Michael Berardi"]

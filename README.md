@@ -70,7 +70,7 @@ Run `"/Applications/Good Night.app/Contents/MacOS/GoodNight" --probe` to print t
 
 ### What it costs
 
-On an Apple silicon Mac, the app is 4.5 MB, 3 MB of which is the Sparkle updater. When idle it uses 0% CPU and about 40 MB of memory, most of which is the system's SwiftUI libraries. It wakes once a minute while following the sun. The Windows installer is 2 MB, and closing its windows frees their web views.
+On an Apple silicon Mac, the app is 8.7 MB, 3 MB of which is the Sparkle updater. When idle it uses 0% CPU and about 40 MB of memory, most of which is the system's SwiftUI libraries. It wakes once a minute while following the sun. The Windows installer is 2 MB, and closing its windows frees their web views.
 
 ### Privacy
 
