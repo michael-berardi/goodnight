@@ -118,3 +118,7 @@ The curve is defined once per platform, in `macos/Sources/GoodNight/Warmth.swift
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+Part of [Pareto Cybernetics](https://paretocybernetics.com/): free, private, open-source tools for working with AI agents.
