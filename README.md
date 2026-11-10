@@ -21,6 +21,12 @@
   <img src="docs/mac-menu.png" width="300" alt="Good Night in the menu bar">
 </p>
 
+## Download
+
+- **macOS 13 or later, Apple silicon and Intel:** [GoodNight-0.2.0-mac.dmg](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-mac.dmg). Signed and notarized by Apple.
+- **Windows 10 and 11, x64 (preview):** [GoodNight-0.2.0-windows-x64-setup.exe](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-windows-x64-setup.exe). Not code-signed yet, so SmartScreen may ask first (**More info**, then **Run anyway**).
+- All releases and checksums (`SHA256SUMS`): [latest release](https://github.com/michael-berardi/goodnight/releases/latest).
+
 ## What it does
 
 - **Warmth.** One slider takes your screen from daylight (6,500K) to candlelight (2,000K) to deep night (1,200K). Six presets sit along the way: Day, Golden, Sunset, Candle, Night and Midnight.
