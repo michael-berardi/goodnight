@@ -21,36 +21,14 @@
   <img src="docs/mac-menu.png" width="300" alt="Good Night in the menu bar">
 </p>
 
-## Download
-
-- **macOS 13 or later, Apple silicon and Intel:** [GoodNight-0.2.0-mac.dmg](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-mac.dmg). Signed and notarized by Apple.
-- **Windows 10 and 11, x64 (preview):** [GoodNight-0.2.0-windows-x64-setup.exe](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-windows-x64-setup.exe). Not code-signed yet, so SmartScreen may ask first (**More info**, then **Run anyway**).
-- All releases and checksums (`SHA256SUMS`): [latest release](https://github.com/michael-berardi/goodnight/releases/latest).
-
-## What it does
-
-- **Warmth.** One slider takes your screen from daylight (6,500K) to candlelight (2,000K) to deep night (1,200K). Six presets sit along the way: Day, Golden, Sunset, Candle, Night and Midnight.
-- **Brightness.** A second slider dims every display in software, down to black. It works on external monitors that have no brightness control of their own.
-- **Follow the sun.** Good Night warms your screen over an hour around sunset and cools it again at sunrise. Sunrise and sunset come from your time zone's city, so it never asks for your location.
-- **Menu bar and Dock (tray and window on Windows).** Keep it in either place or both. Settings let you turn each one off.
-- **Shortcuts that work anywhere.** Change warmth and brightness from any app, even when the screen is too dark to see.
-
-| | macOS | Windows |
-|---|---|---|
-| Warmer / cooler | ⌃⌥⌘ → / ← | Ctrl Alt Shift → / ← |
-| Brighter / dimmer | ⌃⌥⌘ ↑ / ↓ | Ctrl Alt Shift ↑ / ↓ |
-| Presets | ⌘1 – ⌘6 | Tray flyout |
-| Turn on or off | ⇧⌘T | Tray menu |
-
-If you dim all the way to black, press brighter to come back. Good Night also never starts below 30% brightness.
-
 ## Install
 
-**macOS 13 or later.** Download `GoodNight-<version>-mac.dmg` from [Releases](https://github.com/michael-berardi/goodnight/releases/latest), open it, and drag Good Night to Applications. The app is signed and notarized by Apple.
+Download the installer from [Releases](https://github.com/michael-berardi/goodnight/releases/latest):
 
-**Windows 10 and 11 (preview).** Download `GoodNight-<version>-windows-x64-setup.exe` from [Releases](https://github.com/michael-berardi/goodnight/releases/latest) and run it. The installer asks for administrator rights once so Windows allows the full colour range; see [Windows notes](#windows-notes). The installer is not code-signed yet, so Windows SmartScreen may ask first: choose **More info**, then **Run anyway**.
+- **macOS 13 or later, Apple silicon and Intel:** open the `.dmg` and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** run the `windows-x64-setup.exe` installer. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
 
-**Updates.** Good Night checks for a new version once a day and installs it when you agree. Every update is signed, and the app checks that signature before installing anything. You can turn the daily check off in Settings, or check any time from **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows.
+Release checksums are in `SHA256SUMS`. Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
 <p align="center">
   <img src="docs/windows-window.png" width="300" alt="Good Night on Windows">
@@ -58,73 +36,73 @@ If you dim all the way to black, press brighter to come back. Good Night also ne
   <img src="docs/windows-flyout.png" width="260" alt="Good Night tray flyout on Windows">
 </p>
 
+## Controls
+
+- Warmth ranges from 6,500K to 1,200K, with six presets: Day, Golden, Sunset, Candle, Night and Midnight.
+- Brightness dims supported displays in software, including external monitors, down to black. Relaunching starts at no less than 30% brightness.
+- Follow the Sun warms over an hour around sunset and cools over 45 minutes around sunrise. Times use your time zone's reference city, not your location. Unknown zones use an estimate from the UTC offset; polar day and night use 07:00 and 19:00.
+- On macOS, Settings control visibility in the menu bar and Dock. On Windows, closing the window leaves the app in the tray.
+
+| Action | macOS | Windows |
+|---|---|---|
+| Warmer / cooler (global) | ⌃⌥⌘ → / ← | Ctrl Alt Shift → / ← |
+| Brighter / dimmer (global) | ⌃⌥⌘ ↑ / ↓ | Ctrl Alt Shift ↑ / ↓ |
+| Presets | ⌘1 – ⌘6 (app focused) | Tray flyout |
+| Turn on or off | ⇧⌘T (app focused) | Tray menu |
+
+If you dim to black, use the global brighter shortcut. Another app can prevent a shortcut from registering, so check it before dimming fully.
+
 ## How it works
 
-Every display has a small colour lookup table that the graphics hardware applies to each pixel on its way to the screen. Good Night rewrites that table and then goes back to sleep. The GPU does no extra work, nothing is layered over your windows, and screenshots and screen recordings keep their true colours.
+Good Night changes display colour lookup tables rather than drawing an overlay. The shared Rust engine in `core/` calculates the warmth curve, schedule and settings; SwiftUI and Tauri provide the platform interfaces.
 
-The tint is built to keep content readable:
+The curve uses a blackbody white-point approximation, keeps a small blue component, and reduces highlights more than shadows at deep-night settings. It transforms the captured display calibration curve. On Windows, unreadable curves or curves that already look tinted are replaced with a linear curve.
 
-1. **Accurate warmth.** Each colour temperature is a real blackbody white point from the CIE Planckian locus (Krystek's 1985 formula), converted to your display's signal.
-2. **Blue never goes to zero.** At the warmest settings a little blue (about 1% of its light) is kept, so blue links, icons and text stay visible instead of turning black.
-3. **Highlights dim, shadows stay.** Deep night lowers bright whites the most and leaves dark tones almost untouched, so dark-mode apps and dark text keep their contrast while white pages stop glaring.
-4. **Your calibration is kept.** The tint multiplies the display's existing curve instead of replacing it.
-5. **Smooth changes.** Presets and schedule changes fade over one second. Sliders respond instantly.
+Presets and schedule changes fade over one second; sliders respond immediately. Display and driver support determine whether gamma changes work. Windows reports rejected changes in the window.
 
-One engine runs both apps. The warmth curve, sunrise and sunset, the schedule and the settings live in `core/`, a small Rust crate built on [Carapace](https://github.com/michael-berardi/carapace). The macOS app (SwiftUI) and the Windows app (Tauri) are shells that own only what their platform must: the display, the tray or menu bar, shortcuts and login items. `core/tests/golden-swift.txt` holds the values the original Swift engine produced in eight time zones; the core reproduces them.
+The Windows installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`. Normal quit restores captured display curves; forced termination is not guaranteed to restore them.
 
-Run `"/Applications/Good Night.app/Contents/MacOS/GoodNight" --probe` to print the exact curve and today's sunrise and sunset for your time zone.
+### Updates and privacy
 
-### What it costs
-
-On an Apple silicon Mac, the app is 8.7 MB, 3 MB of which is the Sparkle updater. When idle it uses 0% CPU and about 40 MB of memory, most of which is the system's SwiftUI libraries. It wakes once a minute while following the sun. The Windows installer is 2 MB, and closing its windows frees their web views.
-
-### Privacy
-
-Good Night has no account and collects nothing. Its only network request is the daily update check, which downloads a small file from GitHub Releases. Settings stay on your computer.
-
-## Windows notes
-
-- Windows limits how far an app may change the colour table. The installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`, the same setting f.lux uses, so deep warmth and dimming work. If Windows still refuses, Good Night says so in its window.
-- Windows keeps a colour table after an app exits, so Good Night restores your displays when it quits.
-- The Windows build is a preview. It shares the macOS engine and passes its tests, and reports from real hardware are welcome in [Issues](https://github.com/michael-berardi/goodnight/issues).
+Settings stay on your computer; there is no account. Automatic update checks run daily and can be disabled in Settings. Manual checks are under **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. Updates use GitHub Releases for feeds and downloads, and the updater verifies update signatures before installation. Update signatures are separate from installer code-signing.
 
 ## Build from source
 
-**macOS** (Xcode 26 or later):
+Run the shared engine tests from the repository root with Rust installed:
 
 ```sh
-cargo install --git https://github.com/michael-berardi/carapace --tag v0.1.0 cargo-carapace   # once
+cargo test --manifest-path core/Cargo.toml -j4
+```
+
+The tests include parity against the original Swift engine in eight time zones. No app launch or display changes are needed.
+
+**macOS:** install Xcode 26 or later and Rust, including the `aarch64-apple-darwin` and `x86_64-apple-darwin` targets. Generate the engine framework before building Swift:
+
+```sh
+cargo install --git https://github.com/michael-berardi/carapace --tag v0.1.0 cargo-carapace
 cd macos
-scripts/build.sh              # builds the engine, then a universal app in macos/dist, signed with your Developer ID if present
-swift build && .build/debug/GoodNight --probe
-NOTARY_PROFILE=<profile> scripts/release.sh   # notarized DMG and update feed
+CARGO_BUILD_JOBS=4 scripts/build-core.sh
+swift build -j 4
 ```
 
-**Windows** (Rust and the [Tauri CLI](https://v2.tauri.app/)):
+`macos/scripts/build.sh` packages a universal app in `macos/dist` and signs it with a Developer ID when available (otherwise ad-hoc). It is separate from the development build above. `macos/scripts/release.sh` additionally requires `NOTARY_PROFILE` and produces a notarized DMG and update feed.
+
+**Windows:** install Rust, the [Tauri prerequisites and CLI](https://v2.tauri.app/), then run:
 
 ```sh
-(cd core && cargo test)       # engine tests, including parity with the original Swift curve; any OS
 cd windows/src-tauri
-cargo tauri build             # on Windows
-cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc   # from macOS or Linux
-cd .. && TAURI_SIGNING_PRIVATE_KEY=<key> scripts/release.sh             # installer and update feed
+cargo tauri build
 ```
+
+Cross-building also requires `cargo-xwin` and NSIS: use `cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc`. `windows/scripts/release.sh` requires `TAURI_SIGNING_PRIVATE_KEY` and produces the installer and update feed in `windows/dist`.
 
 ## Layout
 
-```
-core/      Rust engine shared by both apps: warmth curve, sun, schedule, settings
-macos/     Swift and SwiftUI app: menu bar extra, window, settings, colour tables
-windows/   Rust and Tauri app: tray flyout, window, gamma ramp
-docs/      app icon (icon-1024.png), vector logo mark (mark.svg) and screenshots
-```
-
-The curve is defined once per platform, in `macos/Sources/GoodNight/Warmth.swift` and `windows/src-tauri/src/warmth.rs`, and the Rust tests check it against the macOS numbers.
+- `core/`: shared Rust engine and regression tests; the curve lives in `core/src/warmth.rs`.
+- `macos/`: SwiftUI shell, display integration and packaging scripts. `GoodNightEngine.swift` is generated by `scripts/build-core.sh`; do not edit it by hand.
+- `windows/`: Tauri shell, static web UI, display integration and installer scripts.
+- `docs/`: icon, vector mark and screenshots.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
----
-
-Part of [Pareto Cybernetics](https://paretocybernetics.com/projects/goodnight/): free, private, open-source tools for working with AI agents.
