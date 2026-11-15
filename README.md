@@ -15,20 +15,18 @@
   <a href="#build-from-source">Build from source</a>
 </p>
 
+## Install
+
+- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+
+Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
+
 <p align="center">
   <img src="docs/mac-window.png" width="340" alt="Good Night window at Midnight">
   &nbsp;
   <img src="docs/mac-menu.png" width="300" alt="Good Night in the menu bar">
 </p>
-
-## Install
-
-Download the installer from [Releases](https://github.com/michael-berardi/goodnight/releases/latest):
-
-- **macOS 13 or later, Apple silicon and Intel:** open the `.dmg` and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** run the `windows-x64-setup.exe` installer. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
-
-Release checksums are in `SHA256SUMS`. Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
 <p align="center">
   <img src="docs/windows-window.png" width="300" alt="Good Night on Windows">
@@ -106,3 +104,7 @@ Cross-building also requires `cargo-xwin` and NSIS: use `cargo tauri build --run
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+Part of [Pareto Cybernetics](https://paretocybernetics.com/projects/goodnight/): free, private, open-source tools for working with AI agents.
