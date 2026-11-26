@@ -137,9 +137,6 @@ function render() {
   $("autoupdate").disabled = S.checksDisabled;
   $("update").textContent = updateLabel();
   $("update").disabled = S.checksDisabled;
-  $("update-caption").textContent = S.checksDisabled
-    ? "Checks disabled by GOODNIGHT_NO_UPDATE_CHECK=1"
-    : "Daily, anonymous check · opt out with GOODNIGHT_NO_UPDATE_CHECK=1";
   $("update-banner").hidden = S.checksDisabled || !S.update;
   $("update-banner").textContent = S.update ? `Good Night ${S.update} is ready · Install` : "";
   $("error").hidden = !S.error;

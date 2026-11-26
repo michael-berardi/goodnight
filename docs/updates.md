@@ -17,8 +17,12 @@ unparseable versions are ignored.
   profile. macOS uses the fixed `GoodNight-Update-Check/1.0` User-Agent (set before Sparkle
   starts) and `SUSendProfileInfo=false`. As with any web request, GitHub sees your IP address
   and ordinary transport headers.
-- It runs off the startup path: Sparkle schedules it, and Windows uses a detached, non-blocking
-  task with a 4-second timeout. A failed check is recorded with its cause and shown if you press
+- It runs off the startup path: Sparkle schedules the macOS check; Windows uses a detached,
+  non-blocking task with a 4-second timeout. That timeout is Windows-only. Sparkle performs the
+  macOS appcast GET inside its own URL loader and its public updater API exposes only
+  `updateCheckInterval` (a schedule, not a request timeout); the `willDownloadUpdate:withRequest:`
+  delegate hook covers the signed update binary, not the feed check. Good Night therefore applies
+  no 4-second timeout on macOS. A failed check is recorded with its cause and shown if you press
   **Check now**; it is never printed as routine noise or retried in a loop.
 - No automatic check runs in CI, in a headless or print-only invocation (`--probe`, Windows
   standalone `--hidden`), or when `GOODNIGHT_NO_UPDATE_CHECK=1` is set. The Windows login item
@@ -37,7 +41,7 @@ unparseable versions are ignored.
 - On Windows, **Check now** reports the newer version in Settings; **Install** downloads and
   verifies the signed release before installation. Installation waits for your explicit choice.
 - **Automatically download and install updates in the future** is unchecked by default in the
-  Sparkle dialog. Good Night 0.4.1 does not auto-install on Windows; check results only produce a
+  Sparkle dialog. Good Night 0.4.2 does not auto-install on Windows; check results only produce a
   prompt, so a background check cannot replace the version you are using.
 
 ## Privacy and retention

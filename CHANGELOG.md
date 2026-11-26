@@ -2,6 +2,17 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-11-26
+
+### Changed
+
+- Removed the redundant caption under the Windows **Check for updates automatically** switch; the control label and [docs/updates.md](docs/updates.md) already explain the anonymous daily check and opt-out.
+- Documented why the 4-second timeout is Windows-only: Sparkle owns the macOS appcast request and exposes no supported per-request timeout, so Good Night does not enforce that cap on macOS.
+
+### Fixed
+
+- Patch version bumped in both app manifests, the bundled version strings, the release links and the regression tests.
+
 ## [0.4.1] - 2026-11-26
 
 ### Fixed
@@ -22,7 +33,7 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- Privacy tests asserting the new defaults, the environment/noninteractive gates, the daily cache and the old-default migration behaviour. A rendered Windows Settings caption documents the opt-out.
+- Privacy tests asserting the new defaults, the environment/noninteractive gates, the daily cache and the old-default migration behaviour.
 
 ## [0.3.0] - 2026-11-26
 

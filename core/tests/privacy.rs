@@ -161,11 +161,16 @@ fn docs_and_changelog_describe_the_v1_contract() {
     let docs = fs::read_to_string(root.join("docs/updates.md")).unwrap();
     assert!(docs.contains("<!-- update-contract: v1 -->"));
     assert!(docs.contains("GOODNIGHT_NO_UPDATE_CHECK=1"));
+    assert!(
+        docs.contains("no 4-second timeout on macOS"),
+        "the macOS framework timeout limitation must be explicit"
+    );
+    assert!(docs.contains("updateCheckInterval"), "schedule is not a request timeout");
     let readme = fs::read_to_string(root.join("README.md")).unwrap();
     assert!(readme.contains("[docs/updates.md](docs/updates.md)"));
     assert!(readme.contains("on by default"));
     let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
-    assert!(changelog.contains("[0.4.1]"));
+    assert!(changelog.contains("[0.4.2]"));
 }
 
 #[test]
@@ -189,7 +194,11 @@ fn disabled_check_now_is_not_reported_as_up_to_date() {
     let up_to_date = js.find("Up to date").expect("the ordinary no-update result");
     assert!(disabled < up_to_date, "the disabled branch must precede and guard 'Up to date'");
     let html = fs::read_to_string(root().join("windows/ui/index.html")).unwrap();
-    assert!(html.contains("id=\"update-caption\""));
+    assert!(
+        !html.contains("id=\"update-caption\""),
+        "the switch label and docs explain the check; no redundant caption"
+    );
+    assert!(!js.contains("update-caption"), "no orphaned caption renderer");
 }
 
 #[test]
@@ -201,6 +210,6 @@ fn patch_version_is_bumped_in_every_manifest() {
         "macos/Resources/Info.plist",
     ] {
         let text = fs::read_to_string(root().join(path)).unwrap();
-        assert!(text.contains("0.4.1"), "{path} must carry 0.4.1");
+        assert!(text.contains("0.4.2"), "{path} must carry 0.4.2");
     }
 }

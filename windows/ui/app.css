@@ -140,7 +140,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 .group { background: var(--well); border-radius: 12px; padding: 4px 14px; }
 .group .row { min-height: 42px; border-bottom: 1px solid var(--line); }
 .group .row:last-child { border-bottom: 0; }
-.group .caption { margin: 0; padding: 0 0 8px; }
 .value { color: var(--muted); text-align: right; }
 .keys { font-size: 12px; letter-spacing: 0.2px; }
 .about { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
