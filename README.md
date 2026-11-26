@@ -17,8 +17,8 @@
 
 ## Install
 
-- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.4.0-mac.dmg), open it, and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.4.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.4.1-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.4.1-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
@@ -62,13 +62,13 @@ The Windows installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Micros
 
 ### Updates
 
-Automatic checks are **on by default** in interactive use: one anonymous request to the signed GitHub Releases feed at most once every 24 hours. Automatic installation is **off by default**; macOS offers it as an unchecked opt-in in the update dialog. Turn checks off in **Settings → Updates → Check for updates automatically** or with `GOODNIGHT_NO_UPDATE_CHECK=1`. Manual checks remain available via **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. See [docs/updates.md](docs/updates.md) for the full contract, cache and failure behaviour.
+Automatic checks are **on by default** in interactive use, including the hidden Windows login item: one anonymous request to the signed GitHub Releases feed at most once every 24 hours. The macOS request uses a fixed User-Agent and sends no system profile. Automatic installation is **off by default**; macOS offers it as an unchecked opt-in in the update dialog. Turn checks off in **Settings → Updates → Check for updates automatically** or with `GOODNIGHT_NO_UPDATE_CHECK=1`, in which case Windows **Check now** says **Checks disabled** rather than **Up to date**. Manual checks remain available via **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. See [docs/updates.md](docs/updates.md) for the full contract, cache and failure behaviour.
 
 ## Privacy
 
 The only network feature is the update check described above. It runs on interactive launches, in the background, and is disabled in CI, headless/print modes and when you opt out. There is no telemetry, analytics, crash reporting, account, install ID or machine fingerprint.
 
-A check is one HTTPS GET for the public signed feed on GitHub Releases; as with any web request, GitHub sees your IP address and standard request headers. No settings, warmth schedule, file contents, usage data or unique identifier is sent. A failed check is recorded locally with its cause, not sent anywhere.
+A check is one HTTPS GET for the public signed feed on GitHub Releases; as with any web request, GitHub sees your IP address and transport headers. macOS sends the fixed `GoodNight-Update-Check/1.0` User-Agent and no system profile. No settings, warmth schedule, file contents, usage data or unique identifier is sent. A failed check is recorded locally with its cause, not sent anywhere.
 
 Settings are stored only on this machine: `~/Library/Preferences/com.libertydesignstudio.goodnight.plist` on macOS (UserDefaults) and `settings.json` in the app's config folder under your Windows user profile. They contain warmth, brightness, schedule, menu-bar/Dock visibility and the update preference only — no prompts, files, credentials or location. Windows also keeps `update-check.json` in the app cache with the last check time and any failure cause. Diagnostics go to the macOS unified log or the Windows console. The UI uses bundled assets and system fonts, with no third-party fonts or scripts.
 

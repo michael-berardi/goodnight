@@ -39,8 +39,19 @@ struct View {
     error: Option<String>,
     version: &'static str,
     auto_update: bool,
+    /// True when GOODNIGHT_NO_UPDATE_CHECK=1: Check now must say so, not "Up to date".
+    checks_disabled: bool,
     /// A newer signed release, when one was found.
     update: Option<String>,
+}
+
+/// Manual-check result. `disabled` is distinct from "no newer version" so the UI never
+/// turns an opt-out into a misleading "Up to date".
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckOutcome {
+    version: Option<String>,
+    disabled: bool,
 }
 
 enum Msg {
@@ -128,8 +139,11 @@ fn record_check(path: &Path, outcome: &Result<Option<String>, String>) {
 }
 
 /// Opt-out and noninteractive gating. `CI` being set at all (not just `CI=1`) counts.
-fn checks_allowed(hidden: bool, ci: bool, env_opt_out: bool) -> bool {
-    !hidden && !ci && !env_opt_out
+/// The login item launches tray-only with `--autostart --hidden`; that is a real user and
+/// still gets the daily check. A standalone `--hidden` launch is headless/agent use and stays
+/// silent unless it also carries the explicit `--autostart` marker.
+fn checks_allowed(hidden: bool, autostart: bool, ci: bool, env_opt_out: bool) -> bool {
+    (!hidden || autostart) && !ci && !env_opt_out
 }
 
 fn env_opt_out() -> bool {
@@ -240,6 +254,7 @@ fn view(app: &AppHandle) -> View {
         error,
         version: env!("CARGO_PKG_VERSION"),
         auto_update: c.auto_update,
+        checks_disabled: env_opt_out(),
         update,
     }
 }
@@ -328,11 +343,12 @@ fn set_auto_update(app: AppHandle, on: bool) {
 }
 
 /// Looks for a newer signed release. Returns its version, if any. Manual checks bypass the
-/// daily cache but refresh it; every automatic check is gated by the caller.
+/// daily cache but refresh it; every automatic check is gated by the caller. The environment
+/// opt-out is reported as `disabled`, never as "up to date".
 #[tauri::command]
-async fn check_update(app: AppHandle) -> Result<Option<String>, String> {
+async fn check_update(app: AppHandle) -> Result<CheckOutcome, String> {
     if env_opt_out() {
-        return Ok(None);
+        return Ok(CheckOutcome { version: None, disabled: true });
     }
     use tauri_plugin_updater::UpdaterExt;
     let outcome: Result<Option<String>, String> = match tokio::time::timeout(CHECK_TIMEOUT, async {
@@ -349,7 +365,7 @@ async fn check_update(app: AppHandle) -> Result<Option<String>, String> {
     }
     record_check(&state.cache_path, &outcome);
     let _ = app.emit("state", view(&app));
-    outcome
+    outcome.map(|version| CheckOutcome { version, disabled: false })
 }
 
 /// Downloads, verifies (minisign key in tauri.conf.json) and installs the update, then restarts.
@@ -539,14 +555,18 @@ fn main() {
         eprintln!("goodnight: {info}");
     }));
 
-    let hidden = std::env::args().any(|a| a == "--hidden");
+    let args: Vec<String> = std::env::args().collect();
+    let hidden = args.iter().any(|a| a == "--hidden");
+    let autostart = args.iter().any(|a| a == "--autostart");
     let (tx, rx) = mpsc::channel();
     let mut rx = Some(rx);
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
+        // Login is a real user even though the window is suppressed; `--autostart` marks it
+        // so the daily check still runs. Standalone `--hidden` remains headless/agent-only.
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--autostart", "--hidden"])))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -585,8 +605,9 @@ fn main() {
             let notice_app = app.handle().clone();
             app.state::<State>().core.subscribe(move |n| on_notice(&notice_app, n));
 
-            // One daily check, first one a minute after an interactive launch. Hidden/agent
-            // launches, CI, the env opt-out and the Settings switch all keep the feed silent.
+            // One daily check, first one a minute after launch. A login-item launch is
+            // tray-only but interactive and still checks; standalone `--hidden`, CI, the env
+            // opt-out and the Settings switch all keep the feed silent.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut wait = Duration::from_secs(60);
@@ -595,7 +616,7 @@ fn main() {
                     wait = CHECK_INTERVAL;
                     let st = handle.state::<State>();
                     let enabled = st.core_state().auto_update
-                        && checks_allowed(hidden, std::env::var_os("CI").is_some(), env_opt_out())
+                        && checks_allowed(hidden, autostart, std::env::var_os("CI").is_some(), env_opt_out())
                         && check_due(&st.cache_path);
                     if enabled {
                         if let Err(e) = check_update(handle.clone()).await {
@@ -712,10 +733,26 @@ mod tests {
 
     #[test]
     fn only_interactive_unopted_out_launches_check_automatically() {
-        assert!(checks_allowed(false, false, false));
-        assert!(!checks_allowed(true, false, false), "hidden/agent launch");
-        assert!(!checks_allowed(false, true, false), "CI");
-        assert!(!checks_allowed(false, false, true), "GOODNIGHT_NO_UPDATE_CHECK=1");
+        assert!(checks_allowed(false, false, false, false));
+        assert!(!checks_allowed(true, false, false, false), "standalone hidden/agent launch");
+        assert!(!checks_allowed(false, false, true, false), "CI");
+        assert!(!checks_allowed(false, false, false, true), "GOODNIGHT_NO_UPDATE_CHECK=1");
+    }
+
+    #[test]
+    fn hidden_login_item_still_checks_but_hidden_agent_does_not() {
+        // The login item is a real user: it only suppresses the window.
+        assert!(checks_allowed(true, true, false, false));
+        assert!(!checks_allowed(true, true, true, false), "CI still wins");
+        assert!(!checks_allowed(true, true, false, true), "env opt-out still wins");
+    }
+
+    #[test]
+    fn a_disabled_check_is_a_distinct_outcome() {
+        let outcome = CheckOutcome { version: None, disabled: true };
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(json["disabled"], true);
+        assert!(json["version"].is_null());
     }
 
     #[test]

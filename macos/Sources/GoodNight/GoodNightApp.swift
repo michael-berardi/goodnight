@@ -113,10 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// Signed updates through Sparkle. A daily anonymous check is on by default in interactive
 /// use (Info.plist and the fallback below); a check reads the public GitHub release feed
-/// (SUFeedURL) and the EdDSA key in Info.plist verifies the download. Automatic installation
-/// stays off unless the Sparkle prompt's opt-in checkbox is used.
+/// (SUFeedURL) and the EdDSA key in Info.plist verifies the download. The request uses a fixed
+/// User-Agent and never sends the system profile; automatic installation stays off unless the
+/// Sparkle prompt's opt-in checkbox is used.
 final class Updates: ObservableObject {
     static let shared = Updates()
+    /// No OS version, machine details or random identifier: the same string on every Mac.
+    private static let userAgent = "GoodNight-Update-Check/1.0"
     private var controller: SPUStandardUpdaterController?
 
     /// CI, headless/print runs and the documented env kill switch do not start Sparkle's
@@ -127,8 +130,15 @@ final class Updates: ObservableObject {
     }
 
     func start() {
-        controller = SPUStandardUpdaterController(startingUpdater: !Self.checksDisabled,
-                                                  updaterDelegate: nil, userDriverDelegate: nil)
+        // Install the anonymous User-Agent before Sparkle starts its first scheduled check.
+        let updater = SPUStandardUpdaterController(startingUpdater: false,
+                                                   updaterDelegate: nil, userDriverDelegate: nil)
+        updater.updater.userAgentString = Self.userAgent
+        if !Self.checksDisabled {
+            do { try updater.updater.start() }
+            catch { NSLog("GoodNight: could not start update checks: \(error)") }
+        }
+        controller = updater
     }
 
     func checkForUpdates() {

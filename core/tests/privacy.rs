@@ -107,13 +107,32 @@ fn macos_sparkle_defaults_to_daily_checks_and_no_auto_install() {
         "Sparkle must never install without the user's opt-in"
     );
     assert!(plist.contains("<integer>86400</integer>"));
+    assert!(
+        plist.contains("<key>SUSendProfileInfo</key>\n\t<false/>"),
+        "Sparkle must not send the system profile with the check"
+    );
     let app = fs::read_to_string(root.join("macos/Sources/GoodNight/GoodNightApp.swift")).unwrap();
+    assert!(
+        app.contains("GoodNight-Update-Check/1.0"),
+        "the User-Agent must be fixed, with no machine or OS identifiers"
+    );
+    assert!(app.contains("updater.userAgentString = Self.userAgent"));
+    assert!(
+        app.contains("startingUpdater: false"),
+        "set the User-Agent before Sparkle's first scheduled check"
+    );
+    assert!(app.contains("try updater.updater.start()"));
     assert!(
         app.contains("automaticallyChecksForUpdates ?? true"),
         "the Settings toggle must read on when no preference was saved"
     );
     assert!(app.contains("GOODNIGHT_NO_UPDATE_CHECK"), "env opt-out");
     assert!(app.contains("env[\"CI\"] != nil"), "CI must disable checks");
+    let generated = fs::read_to_string(root.join("macos/Sources/GoodNight/GoodNightEngine.swift")).unwrap();
+    assert!(
+        generated.contains("autoUpdate: Bool = true"),
+        "generated Swift bindings must match the core's checks-on default"
+    );
 }
 
 #[test]
@@ -127,7 +146,8 @@ fn windows_periodic_check_is_gated_on_setting_opt_out_and_daily_cache() {
     let close = body.find("\n                }\n            });").expect("timer gate block closes");
     assert!(call < close, "check_update must sit inside the gated block");
     assert_eq!(main.matches("check_update(handle.clone())").count(), 1, "no ungated timer check");
-    assert!(main.contains("checks_allowed(hidden, std::env::var_os(\"CI\").is_some(), env_opt_out())"));
+    assert!(main.contains("vec![\"--autostart\", \"--hidden\"]"), "login launches hidden but marked as a real user");
+    assert!(main.contains("checks_allowed(hidden, autostart, std::env::var_os(\"CI\").is_some(), env_opt_out())"));
     assert!(main.contains("GOODNIGHT_NO_UPDATE_CHECK"));
     assert!(main.contains("check_due(&st.cache_path)"), "at most one check per day");
     assert!(main.contains("const CHECK_TIMEOUT: Duration = Duration::from_secs(4)"), "short timeout");
@@ -145,5 +165,42 @@ fn docs_and_changelog_describe_the_v1_contract() {
     assert!(readme.contains("[docs/updates.md](docs/updates.md)"));
     assert!(readme.contains("on by default"));
     let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
-    assert!(changelog.contains("[0.4.0]"));
+    assert!(changelog.contains("[0.4.1]"));
+}
+
+#[test]
+fn a_windows_login_launch_checks_but_a_hidden_agent_launch_does_not() {
+    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
+    let gate = main.find("fn checks_allowed(").expect("the gate");
+    let body = &main[gate..gate + 400];
+    assert!(body.contains("(!hidden || autostart)"));
+    assert!(main.contains("assert!(checks_allowed(true, true, false, false))"));
+    assert!(main.contains("assert!(!checks_allowed(true, false, false, false)"));
+}
+
+#[test]
+fn disabled_check_now_is_not_reported_as_up_to_date() {
+    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
+    assert!(main.contains("checks_disabled: env_opt_out()"));
+    assert!(main.contains("Ok(CheckOutcome { version: None, disabled: true })"));
+    let js = fs::read_to_string(root().join("windows/ui/app.js")).unwrap();
+    assert!(js.contains("Checks disabled"));
+    let disabled = js.find("r.disabled").expect("the disabled branch");
+    let up_to_date = js.find("Up to date").expect("the ordinary no-update result");
+    assert!(disabled < up_to_date, "the disabled branch must precede and guard 'Up to date'");
+    let html = fs::read_to_string(root().join("windows/ui/index.html")).unwrap();
+    assert!(html.contains("id=\"update-caption\""));
+}
+
+#[test]
+fn patch_version_is_bumped_in_every_manifest() {
+    for path in [
+        "core/Cargo.toml",
+        "windows/src-tauri/Cargo.toml",
+        "windows/src-tauri/tauri.conf.json",
+        "macos/Resources/Info.plist",
+    ] {
+        let text = fs::read_to_string(root().join(path)).unwrap();
+        assert!(text.contains("0.4.1"), "{path} must carry 0.4.1");
+    }
 }

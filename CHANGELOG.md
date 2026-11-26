@@ -2,6 +2,15 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-11-26
+
+### Fixed
+
+- macOS update requests now use the fixed anonymous User-Agent `GoodNight-Update-Check/1.0`, set before Sparkle starts, and explicitly disable the system profile (`SUSendProfileInfo=false`).
+- Windows login launches with `--autostart --hidden` and still receives the daily check; a standalone `--hidden` invocation remains headless/agent-only and stays silent.
+- With `GOODNIGHT_NO_UPDATE_CHECK=1`, **Check now** shows **Checks disabled** instead of falsely reporting **Up to date**.
+- Patch version bumped in both app manifests, the bundled version strings and the release links.
+
 ## [0.4.0] - 2026-11-26
 
 ### Changed

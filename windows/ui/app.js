@@ -111,6 +111,13 @@ function dial(el, get, set, detents) {
   });
 }
 
+/// A disabled check is not an up-to-date result: say so wherever the button is drawn.
+function updateLabel() {
+  if (S && S.checksDisabled) return "Checks disabled";
+  if (S && S.update) return `Install ${S.update}`;
+  return "Check now";
+}
+
 // Render
 function render() {
   if (!S) return;
@@ -127,8 +134,13 @@ function render() {
   $("about").textContent = "github.com/michael-berardi/goodnight";
   $("version").textContent = `Version ${S.version}`;
   $("autoupdate").checked = S.autoUpdate;
-  $("update").textContent = S.update ? `Install ${S.update}` : "Check now";
-  $("update-banner").hidden = !S.update;
+  $("autoupdate").disabled = S.checksDisabled;
+  $("update").textContent = updateLabel();
+  $("update").disabled = S.checksDisabled;
+  $("update-caption").textContent = S.checksDisabled
+    ? "Checks disabled by GOODNIGHT_NO_UPDATE_CHECK=1"
+    : "Daily, anonymous check · opt out with GOODNIGHT_NO_UPDATE_CHECK=1";
+  $("update-banner").hidden = S.checksDisabled || !S.update;
   $("update-banner").textContent = S.update ? `Good Night ${S.update} is ready · Install` : "";
   $("error").hidden = !S.error;
   $("error").textContent = S.error || "";
@@ -173,11 +185,16 @@ function build() {
   const install = () => { $("update").textContent = "Installing…"; invoke("install_update").catch((err) => { S.error = String(err); render(); }); };
   $("update-banner").onclick = install;
   $("update").onclick = () => {
+    if (S.checksDisabled) return;
     if (S.update) return install();
     $("update").textContent = "Checking…";
     invoke("check_update")
-      .then((v) => { $("update").textContent = v ? `Install ${v}` : "Up to date"; })
-      .catch((err) => { $("update").textContent = "Check now"; S.error = String(err); render(); });
+      .then((r) => {
+        if (r && r.disabled) { $("update").textContent = "Checks disabled"; return; }
+        const version = r && r.version;
+        $("update").textContent = version ? `Install ${version}` : "Up to date";
+      })
+      .catch((err) => { $("update").textContent = updateLabel(); S.error = String(err); render(); });
   };
   $("gear").onclick = () => { $("sheet").hidden = !$("sheet").hidden; };
   $("done").onclick = () => { $("sheet").hidden = true; };
