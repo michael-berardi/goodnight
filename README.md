@@ -17,8 +17,8 @@
 
 ## Install
 
-- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-mac.dmg), open it, and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.3.0-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.3.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
@@ -60,9 +60,16 @@ Presets and schedule changes fade over one second; sliders respond immediately. 
 
 The Windows installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`. Normal quit restores captured display curves; forced termination is not guaranteed to restore them.
 
-### Updates and privacy
+## Updates
 
-Settings stay on your computer; there is no account. Automatic update checks run daily and can be disabled in Settings. Manual checks are under **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. Updates use GitHub Releases for feeds and downloads, and the updater verifies update signatures before installation. Update signatures are separate from installer code-signing.
+Good Night checks for a newer stable release once a day in the background and offers it with its release notes: **Install Update**, **Remind Me Later** or **Skip This Version**. Installing automatically is an opt-in, off by default. **Settings › Updates** has both switches and **Check Now**. Details: [docs/updates.md](docs/updates.md).
+
+## Privacy
+
+- No account, no telemetry, no usage data.
+- One anonymous request a day to the signed release feed, with no identifier or version.
+- Settings and update state stay on this device.
+- Details: [PRIVACY.md](PRIVACY.md).
 
 ## Build from source
 

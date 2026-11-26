@@ -8,6 +8,8 @@ cd "$(dirname "$0")/.."
 scripts/build-core.sh
 swift build -c release --arch arm64 --arch x86_64 -Xswiftc -Osize
 bin=.build/apple/Products/Release/GoodNight
+# Recent SwiftPM releases place universal products under .build/out instead.
+[ -f "$bin" ] || bin=.build/out/Products/Release/GoodNight
 
 app="dist/Good Night.app"
 rm -rf "$app"

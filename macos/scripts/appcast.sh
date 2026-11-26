@@ -12,6 +12,9 @@ build=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$plist")
 repo="${GOODNIGHT_REPO:-michael-berardi/goodnight}"
 base="${GOODNIGHT_DOWNLOAD_BASE:-https://github.com/$repo/releases/download/v$version}"
 bin=.build/artifacts/sparkle/Sparkle/bin
+# This version's CHANGELOG section becomes the short release notes in the update prompt.
+notes=$(awk -v v="[$version]" '/^## \[/ { p = index($0, v) > 0; next } p' ../CHANGELOG.md)
+[ -n "$notes" ] || { echo "CHANGELOG.md has no section for $version" >&2; exit 1; }
 if [ -n "${SPARKLE_KEY_FILE:-}" ]; then
   sig=$("$bin/sign_update" --ed-key-file "$SPARKLE_KEY_FILE" "$dmg")
 else
@@ -28,7 +31,7 @@ cat > "$(dirname "$dmg")/appcast.xml" <<XML
       <sparkle:version>$build</sparkle:version>
       <sparkle:shortVersionString>$version</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/$repo/releases/tag/v$version</sparkle:releaseNotesLink>
+      <description sparkle:format="markdown"><![CDATA[$notes]]></description>
       <enclosure url="$base/$(basename "$dmg")" type="application/octet-stream" $sig />
     </item>
   </channel>

@@ -204,3 +204,37 @@ fn the_schema_exports_and_generates_bindings() {
     assert!(g.swift.contains("public enum GoodNightEngine: CarapaceApp"));
     assert!(g.typescript.contains("export interface State"));
 }
+
+#[test]
+fn checking_is_on_by_default_and_installing_is_an_off_by_default_opt_in() {
+    let (e, _) = start(Settings::default(), NOON_NY);
+    let v = json(&e);
+    assert_eq!(v["autoUpdate"], true);
+    assert_eq!(v["installUpdatesAutomatically"], false);
+    // A settings file written before this field existed keeps working.
+    let old = r#"{"enabled":true,"followSun":true,"manualLevel":0.45,"dayLevel":0.0,"nightLevel":0.68,"brightness":1.0,"autoUpdate":false}"#;
+    let s: Settings = serde_json::from_str(old).unwrap();
+    assert_eq!(s.auto_update, false);
+    assert_eq!(s.install_updates_automatically, false);
+}
+
+#[test]
+fn update_switches_persist_when_changed() {
+    let (mut e, _) = start(Settings::default(), NOON_NY);
+    let out = e.dispatch(Action::SetAutoUpdate { on: false });
+    assert_eq!(json(&e)["autoUpdate"], false);
+    assert!(events(&out).iter().any(|x| x.contains("\"autoUpdate\":false") && x.contains("persist")));
+    let out = e.dispatch(Action::SetInstallUpdatesAutomatically { on: true });
+    assert_eq!(json(&e)["installUpdatesAutomatically"], true);
+    assert!(events(&out)
+        .iter()
+        .any(|x| x.contains("\"installUpdatesAutomatically\":true") && x.contains("persist")));
+    // The persisted settings carry both switches forward.
+    let saved = events(&out)
+        .iter()
+        .find(|x| x.contains("persist"))
+        .and_then(|x| serde_json::from_str::<serde_json::Value>(x).ok())
+        .unwrap();
+    assert_eq!(saved["settings"]["autoUpdate"], false);
+    assert_eq!(saved["settings"]["installUpdatesAutomatically"], true);
+}

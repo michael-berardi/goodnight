@@ -1,6 +1,6 @@
 [package]
 name = "goodnight"
-version = "0.2.0"
+version = "0.3.0"
 description = "Warm, dim and schedule your screen. Tiny, fast and free."
 authors = ["Michael Berardi"]
 license = "MIT"
@@ -21,8 +21,11 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 iana-time-zone = "0.1"
 
+[dev-dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "test"] }
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_SystemInformation", "Win32_UI_ColorSystem", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [profile.release]
 opt-level = "s"

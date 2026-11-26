@@ -45,7 +45,10 @@
       </div>
       <div class="presets" id="presets"></div>
       <p class="error" id="error" hidden></p>
-      <button class="update" id="update-banner" hidden></button>
+      <div class="update-banner" id="update-banner" hidden>
+        <span id="update-banner-text"></span>
+        <button class="link" id="review-update">Review</button>
+      </div>
       <hr>
       <div class="row">
         <div><div>Follow the sun</div><div class="caption" id="next"></div></div>
@@ -56,6 +59,20 @@
         <button class="link" id="quit">Quit</button>
       </footer>
     </main>
+
+    <section class="update-prompt" id="update-prompt" hidden aria-label="Update available">
+      <strong id="update-title"></strong>
+      <pre class="notes" id="update-notes"></pre>
+      <label class="prompt-auto">
+        <input type="checkbox" id="update-auto">
+        <span>Automatically download and install updates in the future</span>
+      </label>
+      <div class="prompt-actions">
+        <button class="link" id="update-skip">Skip This Version</button>
+        <button class="link" id="update-later">Remind Me Later</button>
+        <button class="primary" id="update-now">Install Update</button>
+      </div>
+    </section>
 
     <aside class="sheet" id="sheet" hidden>
       <div class="row head"><strong>Settings</strong><button class="link" id="done">Done</button></div>
@@ -69,7 +86,8 @@
       </div>
       <div class="group">
         <div class="row"><span>Check for updates automatically</span><label class="switch"><input type="checkbox" id="autoupdate"><span></span></label></div>
-        <div class="row"><span id="version"></span><button class="link" id="update">Check now</button></div>
+        <div class="row"><span>Install updates automatically</span><label class="switch"><input type="checkbox" id="installauto"><span></span></label></div>
+        <div class="row"><span class="value" id="version"></span><button class="link" id="update">Check Now</button></div>
       </div>
       <div class="group">
         <div class="row"><span>Warmer · Cooler</span><span class="value keys">Ctrl Alt Shift → · ←</span></div>
@@ -78,6 +96,7 @@
       <p class="about" id="about"></p>
     </aside>
   </div>
+  <script src="updates.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

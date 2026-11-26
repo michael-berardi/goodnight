@@ -2,7 +2,7 @@
 
 ## Scope
 
-Good Night adjusts display colour lookup tables locally using a shared Rust engine (`core/`) with SwiftUI (macOS) and Tauri (Windows) shells. It requires no account and collects no telemetry.
+Good Night adjusts display colour lookup tables locally using a shared Rust engine (`core/`) with SwiftUI (macOS) and Tauri (Windows) shells. It requires no account and collects no telemetry. It connects to the network only for the anonymous daily update check and update downloads described in [docs/updates.md](docs/updates.md).
 
 Security-relevant surfaces include:
 

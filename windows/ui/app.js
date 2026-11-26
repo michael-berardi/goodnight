@@ -33,6 +33,7 @@ const PRESETS = [
 let S = null;          // state from the backend
 let skyLevel = 0;      // what the sky shows, eased toward the effective level
 let dragging = false;
+let promptSuppressed = false; // Settings takes the same space as the prompt
 const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 
 // Sky
@@ -125,11 +126,23 @@ function render() {
   $("place").textContent = S.placeName;
   $("today").textContent = `Sunrise ${timeFmt.format(S.sunrise)} · Sunset ${timeFmt.format(S.sunset)}`;
   $("about").textContent = "github.com/michael-berardi/goodnight";
-  $("version").textContent = `Version ${S.version}`;
+  const ui = globalThis.UpdatesUI;
+  $("version").textContent = ui.versionLabel(S);
+  $("version").title = S.updateError || "";
   $("autoupdate").checked = S.autoUpdate;
-  $("update").textContent = S.update ? `Install ${S.update}` : "Check now";
-  $("update-banner").hidden = !S.update;
-  $("update-banner").textContent = S.update ? `Good Night ${S.update} is ready · Install` : "";
+  $("installauto").checked = ui.autoChecked(S);
+  $("installauto").disabled = !S.autoUpdate;
+  // The window shows the prompt; the small tray flyout only a one-line banner that opens it.
+  const update = ui.shownUpdate(S);
+  $("update-prompt").hidden = !update || view === "flyout" || promptSuppressed;
+  $("update-banner").hidden = !update || view !== "flyout";
+  if (update) {
+    $("update-title").textContent = update.notice;
+    $("update-notes").textContent = ui.excerpt(update.notes);
+    $("update-notes").hidden = !$("update-notes").textContent;
+    $("update-auto").checked = ui.autoChecked(S);
+    $("update-banner-text").textContent = ui.bannerText(update);
+  }
   $("error").hidden = !S.error;
   $("error").textContent = S.error || "";
 
@@ -170,24 +183,42 @@ function build() {
   $("follow").onchange = $("follow2").onchange = (e) => invoke("set_follow_sun", { on: e.target.checked });
   $("autostart").onchange = (e) => invoke("set_autostart", { on: e.target.checked }).catch((err) => { S.error = String(err); render(); });
   $("autoupdate").onchange = (e) => invoke("set_auto_update", { on: e.target.checked });
-  const install = () => { $("update").textContent = "Installing…"; invoke("install_update").catch((err) => { S.error = String(err); render(); }); };
-  $("update-banner").onclick = install;
+  const setAutoInstall = (e) => invoke("set_install_updates_automatically", { on: e.target.checked })
+    .catch((err) => { S.error = String(err); render(); });
+  $("installauto").onchange = setAutoInstall;
+  $("update-auto").onchange = setAutoInstall;
+  $("update-now").onclick = () => {
+    $("update-now").textContent = "Installing…";
+    invoke("install_update").catch((err) => { $("update-now").textContent = "Install Update"; S.error = String(err); render(); });
+  };
+  $("update-later").onclick = () => invoke("dismiss_update");
+  $("update-skip").onclick = () => { if (S.update) invoke("skip_update", { version: S.update.version }); };
+  $("review-update").onclick = () => invoke("open_main");
   $("update").onclick = () => {
-    if (S.update) return install();
     $("update").textContent = "Checking…";
     invoke("check_update")
-      .then((v) => { $("update").textContent = v ? `Install ${v}` : "Up to date"; })
-      .catch((err) => { $("update").textContent = "Check now"; S.error = String(err); render(); });
+      .then((found) => { $("update").textContent = found ? "Check Now" : "Up to date"; })
+      .catch((err) => { $("update").textContent = "Check Now"; S.error = String(err); render(); });
   };
-  $("gear").onclick = () => { $("sheet").hidden = !$("sheet").hidden; };
-  $("done").onclick = () => { $("sheet").hidden = true; };
+  $("gear").onclick = () => {
+    $("sheet").hidden = !$("sheet").hidden;
+    promptSuppressed = !$("sheet").hidden;
+    if (S) render();
+  };
+  $("done").onclick = () => { $("sheet").hidden = true; promptSuppressed = false; if (S) render(); };
   $("minimize").onclick = () => win.minimize();
   $("close").onclick = () => win.close();
   $("open").onclick = () => invoke("open_main");
   $("quit").onclick = () => invoke("quit");
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") view === "flyout" ? win.close() : ($("sheet").hidden = true); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!$("update-prompt").hidden) invoke("dismiss_update");
+    else if (!$("sheet").hidden) { $("sheet").hidden = true; promptSuppressed = false; if (S) render(); }
+    else if (view === "flyout") win.close();
+    else $("sheet").hidden = true;
+  });
   drawStars();
-  if (new URLSearchParams(location.search).has("sheet")) $("sheet").hidden = false;
+  if (new URLSearchParams(location.search).has("sheet")) { $("sheet").hidden = false; promptSuppressed = true; }
 }
 
 invoke("warmth_curve").then((c) => {

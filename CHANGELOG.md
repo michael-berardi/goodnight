@@ -2,6 +2,20 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-26
+
+### Added
+
+- An update prompt with release notes: **Install Update**, **Remind Me Later** or **Skip This Version**, plus an opt-in to install future updates automatically (off by default).
+- **Settings › Updates**: check automatically (on), install automatically (off), and the version with **Check Now** on one row.
+- On Windows, automatic installs wait until no Good Night window is open and you have been away for 10 minutes.
+- `GOODNIGHT_NO_UPDATE_CHECK=1` or `CI` turns background checks off.
+
+### Changed
+
+- Update checks are anonymous: a fixed User-Agent, no app version, at most once a day and never during startup.
+- On Windows, a failed check shows "last check failed" in Settings instead of an error, and update files stay small and are removed when checks are turned off or the app is uninstalled.
+
 ## [0.2.0] - 2026-10-16
 
 ### Changed

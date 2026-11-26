@@ -6,7 +6,7 @@ import CarapaceKit
 
 public enum GoodNightEngine: CarapaceApp {
     public static let name = "GoodNightEngine"
-    public static let schemaHash: UInt64 = 0xd31400e8f1c7868c
+    public static let schemaHash: UInt64 = 0x83f1d8d994c56376
 
 
     public struct PresetInfo: Codable, Sendable, Hashable {
@@ -37,6 +37,7 @@ public enum GoodNightEngine: CarapaceApp {
         public var enabled: Bool
         public var followSun: Bool
         public var autoUpdate: Bool
+        public var installUpdatesAutomatically: Bool
         /// The warmth the user sees and edits, 0 (no tint) … 1 (deep night).
         public var level: Double
         public var brightness: Double
@@ -52,10 +53,11 @@ public enum GoodNightEngine: CarapaceApp {
         public var nextWarms: Bool
         public var nextAt: Double
 
-        public init(enabled: Bool, followSun: Bool, autoUpdate: Bool, level: Double, brightness: Double, kelvin: Int, preset: String, presets: [PresetInfo], target: Target, placeName: String, sunrise: Double, sunset: Double, nextWarms: Bool, nextAt: Double) {
+        public init(enabled: Bool, followSun: Bool, autoUpdate: Bool, installUpdatesAutomatically: Bool, level: Double, brightness: Double, kelvin: Int, preset: String, presets: [PresetInfo], target: Target, placeName: String, sunrise: Double, sunset: Double, nextWarms: Bool, nextAt: Double) {
             self.enabled = enabled
             self.followSun = followSun
             self.autoUpdate = autoUpdate
+            self.installUpdatesAutomatically = installUpdatesAutomatically
             self.level = level
             self.brightness = brightness
             self.kelvin = kelvin
@@ -79,6 +81,7 @@ public enum GoodNightEngine: CarapaceApp {
         case setEnabled(on: Bool)
         case setFollowSun(on: Bool)
         case setAutoUpdate(on: Bool)
+        case setInstallUpdatesAutomatically(on: Bool)
         /// The system time zone changed (travel, daylight saving).
         case setTimeZone(zone: String, utcOffsetSeconds: Int)
         /// Re-read the clock: after wake from sleep, or from the core's own minute timer.
@@ -96,9 +99,12 @@ public enum GoodNightEngine: CarapaceApp {
         /// Warmth by night when following the sun.
         public var nightLevel: Double
         public var brightness: Double
+        /// Check for a newer release once a day (on by default).
         public var autoUpdate: Bool
+        /// Download and install a newer release without asking (off by default).
+        public var installUpdatesAutomatically: Bool
 
-        public init(enabled: Bool = true, followSun: Bool = true, manualLevel: Double = 0.45, dayLevel: Double = 0.0, nightLevel: Double = 0.68, brightness: Double = 1.0, autoUpdate: Bool = true) {
+        public init(enabled: Bool = true, followSun: Bool = true, manualLevel: Double = 0.45, dayLevel: Double = 0.0, nightLevel: Double = 0.68, brightness: Double = 1.0, autoUpdate: Bool = true, installUpdatesAutomatically: Bool = false) {
             self.enabled = enabled
             self.followSun = followSun
             self.manualLevel = manualLevel
@@ -106,6 +112,7 @@ public enum GoodNightEngine: CarapaceApp {
             self.nightLevel = nightLevel
             self.brightness = brightness
             self.autoUpdate = autoUpdate
+            self.installUpdatesAutomatically = installUpdatesAutomatically
         }
 
         enum CodingKeys: Swift.String, Swift.CodingKey {
@@ -116,6 +123,7 @@ public enum GoodNightEngine: CarapaceApp {
             case nightLevel
             case brightness
             case autoUpdate
+            case installUpdatesAutomatically
         }
 
         public init(from decoder: Swift.Decoder) throws {
@@ -127,6 +135,7 @@ public enum GoodNightEngine: CarapaceApp {
             self.nightLevel = try c.decodeIfPresent(Double.self, forKey: .nightLevel) ?? 0.68
             self.brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? 1.0
             self.autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
+            self.installUpdatesAutomatically = try c.decodeIfPresent(Bool.self, forKey: .installUpdatesAutomatically) ?? false
         }
     }
 
@@ -219,6 +228,9 @@ extension GoodNightEngine.Action: Codable {
         case "setAutoUpdate":
             let v0 = try c.decode(Bool.self, forKey: Key("on"))
             self = .setAutoUpdate(on: v0)
+        case "setInstallUpdatesAutomatically":
+            let v0 = try c.decode(Bool.self, forKey: Key("on"))
+            self = .setInstallUpdatesAutomatically(on: v0)
         case "setTimeZone":
             let v0 = try c.decode(String.self, forKey: Key("zone"))
             let v1 = try c.decode(Int.self, forKey: Key("utc_offset_seconds"))
@@ -252,6 +264,9 @@ extension GoodNightEngine.Action: Codable {
             try c.encode(v0, forKey: Key("on"))
         case .setAutoUpdate(let v0):
             try c.encode("setAutoUpdate", forKey: Key("type"))
+            try c.encode(v0, forKey: Key("on"))
+        case .setInstallUpdatesAutomatically(let v0):
+            try c.encode("setInstallUpdatesAutomatically", forKey: Key("type"))
             try c.encode(v0, forKey: Key("on"))
         case .setTimeZone(let v0, let v1):
             try c.encode("setTimeZone", forKey: Key("type"))

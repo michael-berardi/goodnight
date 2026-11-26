@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UpdateKit
 
 private let fade = Animation.easeInOut(duration: 1)
 
@@ -233,6 +234,7 @@ struct SettingsButton: View {
 
 struct MenuView: View {
     @EnvironmentObject var night: Night
+    @ObservedObject private var updates = Updates.shared
     var body: some View {
         VStack(spacing: 14) {
             ZStack(alignment: .bottomLeading) {
@@ -259,6 +261,7 @@ struct MenuView: View {
             PresetRow()
             Divider()
             FollowSunRow()
+            if let version = updates.reminder { UpdateReminder(version: version) }
             Divider()
             HStack(spacing: 16) {
                 Button("Open Good Night") { night.openMain() }
@@ -278,6 +281,7 @@ struct MenuView: View {
 
 struct MainView: View {
     @EnvironmentObject var night: Night
+    @ObservedObject private var updates = Updates.shared
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -304,6 +308,7 @@ struct MainView: View {
                     PresetRow(size: 44)
                     Divider()
                     FollowSunRow()
+                    if let version = updates.reminder { UpdateReminder(version: version) }
                 }
                 .padding(20)
                 .modifier(Glass())
@@ -322,6 +327,20 @@ private struct Glass: ViewModifier {
         } else {
             content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
+    }
+}
+
+/// A scheduled check found an update while Good Night had no Dock icon: one quiet row, text
+/// leading and Review trailing, instead of a dialog over other work.
+struct UpdateReminder: View {
+    let version: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(UpdateNotice.reminder(app: "Good Night", new: version)).foregroundStyle(.orange)
+            Spacer()
+            Button("Review") { Updates.shared.checkForUpdates() }.buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(.orange)
+        }
+        .font(.caption)
     }
 }
 
@@ -350,7 +369,13 @@ struct SettingsView: View {
             }
             Section("Updates") {
                 Toggle("Check for updates automatically", isOn: Binding(get: { updates.automatic }, set: { updates.automatic = $0 }))
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+                Toggle("Install updates automatically", isOn: Binding(get: { updates.installAutomatically }, set: { updates.installAutomatically = $0 }))
+                    .disabled(!updates.canInstallAutomatically)
+                HStack {
+                    Text("Version \(updates.currentVersion)").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Check Now") { updates.checkForUpdates() }
+                }
             }
             Section("Keyboard") {
                 LabeledContent("Warmer · Cooler", value: "⌃⌥⌘→ · ⌃⌥⌘←")

@@ -34,7 +34,10 @@ pub struct Settings {
     /// Warmth by night when following the sun.
     pub night_level: f64,
     pub brightness: f64,
+    /// Check for a newer release once a day (on by default).
     pub auto_update: bool,
+    /// Download and install a newer release without asking (off by default).
+    pub install_updates_automatically: bool,
 }
 
 impl Default for Settings {
@@ -47,6 +50,7 @@ impl Default for Settings {
             night_level: 0.68,
             brightness: 1.0,
             auto_update: true,
+            install_updates_automatically: false,
         }
     }
 }
@@ -87,6 +91,7 @@ pub struct State {
     pub enabled: bool,
     pub follow_sun: bool,
     pub auto_update: bool,
+    pub install_updates_automatically: bool,
     /// The warmth the user sees and edits, 0 (no tint) … 1 (deep night).
     pub level: f64,
     pub brightness: f64,
@@ -127,6 +132,9 @@ pub enum Action {
         on: bool,
     },
     SetAutoUpdate {
+        on: bool,
+    },
+    SetInstallUpdatesAutomatically {
         on: bool,
     },
     /// The system time zone changed (travel, daylight saving).
@@ -318,6 +326,10 @@ impl App for GoodNight {
                 self.s.auto_update = on;
                 self.persist(cx);
             }
+            Action::SetInstallUpdatesAutomatically { on } => {
+                self.s.install_updates_automatically = on;
+                self.persist(cx);
+            }
             Action::SetTimeZone {
                 zone,
                 utc_offset_seconds,
@@ -346,6 +358,7 @@ impl App for GoodNight {
             enabled: self.s.enabled,
             follow_sun: self.s.follow_sun,
             auto_update: self.s.auto_update,
+            install_updates_automatically: self.s.install_updates_automatically,
             level: self.level,
             brightness: self.s.brightness,
             kelvin: kelvin_label(self.level),

@@ -19,6 +19,7 @@
     --flyout: #f6f5f8;
     color-scheme: light;
   }
+  body[data-view="flyout"] .update-banner { color: #b3541b; }
 }
 
 * { box-sizing: border-box; }
@@ -79,8 +80,27 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 .link { color: var(--muted); }
 .link:hover { color: var(--text); }
 .error { margin: -6px 0 0; color: #ff8f80; font-size: 12px; }
-.update { margin-top: -6px; text-align: left; font-size: 12px; color: #ffc48a; }
-.update:hover { color: #ffd9b0; }
+
+/* Update prompt (window) and banner (tray flyout): text leading, actions on the trailing edge. */
+.update-banner { margin-top: -4px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; color: #ffc48a; }
+.update-banner .link { color: inherit; font-weight: 600; }
+.update-prompt {
+  position: absolute; z-index: 7; left: 14px; right: 14px; top: 40px;
+  display: flex; flex-direction: column; gap: 10px; padding: 16px;
+  border-radius: 22px; background: rgb(24, 22, 33); border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  animation: rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.update-prompt strong { font: 600 14px/1.4 var(--font); }
+.notes {
+  margin: 0; max-height: 92px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font: 12px/1.45 var(--font); color: var(--muted);
+}
+.prompt-auto { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--muted); }
+.prompt-auto input { accent-color: #f58042; margin: 1px 0 0; }
+.prompt-actions { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.prompt-actions #update-skip { margin-right: auto; }
+.prompt-actions .primary { padding: 6px 12px; border-radius: 999px; background: var(--amber); color: #1b1206; font-weight: 600; }
 
 /* Switch */
 .switch { position: relative; width: 40px; height: 22px; flex: none; }

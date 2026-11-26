@@ -11,6 +11,9 @@ let package = Package(
     targets: [
         // The engine, built from ../core by scripts/build-core.sh.
         .binaryTarget(name: "GoodnightCore", path: "Core/GoodnightCore.xcframework"),
+        // Pure update rules, shared with the test target (no AppKit or Sparkle needed).
+        .target(name: "UpdateKit", path: "Sources/UpdateKit"),
+        .testTarget(name: "UpdateKitTests", dependencies: ["UpdateKit"]),
         .executableTarget(
             name: "GoodNight",
             dependencies: [
@@ -18,6 +21,7 @@ let package = Package(
                 .product(name: "CarapaceKit", package: "carapace"),
                 .product(name: "CarapaceFFI", package: "carapace"),
                 "GoodnightCore",
+                "UpdateKit",
             ],
             path: "Sources/GoodNight",
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]

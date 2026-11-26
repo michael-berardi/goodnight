@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod gamma;
+mod updates;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -13,6 +15,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_updater::Update;
 use goodnight_core::carapace::{Notice, Runtime};
 use goodnight_core::warmth::{self, smoothstep};
 use goodnight_core::{Action, Config, Event, GoodNight, Settings};
@@ -37,8 +40,21 @@ struct View {
     error: Option<String>,
     version: &'static str,
     auto_update: bool,
+    install_updates_automatically: bool,
     /// A newer signed release, when one was found.
-    update: Option<String>,
+    update: Option<UpdateView>,
+    /// Cause of the last failed check, shown in Settings rather than as an alert.
+    update_error: Option<String>,
+}
+
+/// What the update prompt shows: both versions and the signed feed's release notes.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct UpdateView {
+    version: String,
+    current: String,
+    notice: String,
+    notes: String,
 }
 
 enum Msg {
@@ -52,7 +68,21 @@ struct State {
     path: PathBuf,
     tx: Mutex<Sender<Msg>>,
     error: Mutex<Option<String>>,
-    update: Mutex<Option<String>>,
+    /// updates.json: what the update checks found (see updates.rs).
+    cache: Mutex<updates::Cache>,
+    /// The release the prompt shows.
+    update: Mutex<Option<UpdateView>>,
+    /// An opt-in update waiting for an idle moment.
+    pending: Mutex<Option<(Update, UpdateView)>>,
+    checking: AtomicBool,
+}
+
+/// Clears the in-flight flag even when a check fails.
+struct CheckGuard<'a>(&'a AtomicBool);
+impl Drop for CheckGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl State {
@@ -87,6 +117,23 @@ impl State {
     fn render(&self, animated: bool) {
         let _ = self.tx.lock().unwrap().send(Msg::Render { animated });
     }
+
+    fn dir(&self) -> &std::path::Path {
+        self.path.parent().unwrap_or(std::path::Path::new("."))
+    }
+
+    /// Remembers and saves the update cache.
+    fn keep(&self, cache: updates::Cache) {
+        if let Err(e) = cache.save(&self.dir().join("updates.json")) {
+            eprintln!("goodnight: cannot save the update cache: {e}");
+        }
+        *self.cache.lock().unwrap() = cache;
+    }
+
+    /// Background update events only, in one bounded file.
+    fn log(&self, line: &str) {
+        let _ = updates::append_log(&self.dir().join("updates.log"), updates::now(), line);
+    }
 }
 
 fn view(app: &AppHandle) -> View {
@@ -94,6 +141,7 @@ fn view(app: &AppHandle) -> View {
     let c = st.core_state();
     let error = st.error.lock().unwrap().clone();
     let update = st.update.lock().unwrap().clone();
+    let update_error = st.cache.lock().unwrap().last_error.clone();
     View {
         enabled: c.enabled,
         follow_sun: c.follow_sun,
@@ -110,7 +158,9 @@ fn view(app: &AppHandle) -> View {
         error,
         version: env!("CARGO_PKG_VERSION"),
         auto_update: c.auto_update,
+        install_updates_automatically: c.install_updates_automatically,
         update,
+        update_error,
     }
 }
 
@@ -194,29 +244,180 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn set_auto_update(app: AppHandle, on: bool) {
-    app.state::<State>().act(Action::SetAutoUpdate { on });
+    let st = app.state::<State>();
+    st.act(Action::SetAutoUpdate { on });
+    if !on {
+        // No checks, no update state on disk. The NSIS uninstaller removes the same files.
+        if let Some(dir) = st.path.parent() {
+            updates::clear(dir);
+        }
+        *st.cache.lock().unwrap() = updates::Cache::default();
+        *st.update.lock().unwrap() = None;
+        *st.pending.lock().unwrap() = None;
+        publish(&app);
+    }
 }
 
-/// Looks for a newer signed release. Returns its version, if any.
 #[tauri::command]
-async fn check_update(app: AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let found = app.updater().map_err(|e| e.to_string())?.check().await
-        .map_err(|e| format!("Couldn't check for updates: {e}"))?
-        .map(|u| u.version);
-    *app.state::<State>().update.lock().unwrap() = found.clone();
-    let _ = app.emit("state", view(&app));
-    Ok(found)
+fn set_install_updates_automatically(app: AppHandle, on: bool) {
+    let st = app.state::<State>();
+    st.act(Action::SetInstallUpdatesAutomatically { on });
+    if !on {
+        *st.pending.lock().unwrap() = None;
+    }
 }
 
-/// Downloads, verifies (minisign key in tauri.conf.json) and installs the update, then restarts.
+/// The updater for one request: the fixed User-Agent, a 4 s check timeout, and the screen
+/// restored before the installer takes over (on Windows it ends this process).
+fn updater<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<tauri_plugin_updater::Updater, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let handle = app.clone();
+    let before_exit = move || {
+        gamma::restore();
+        handle.cleanup_before_exit();
+    };
+    app.updater_builder()
+        .header("User-Agent", updates::USER_AGENT)
+        .and_then(|b| b.timeout(Duration::from_secs(4)).on_before_exit(before_exit).build())
+        .map_err(|e| e.to_string())
+}
+
+/// Downloads with a longer timeout than the check, verifies the minisign signature against the
+/// key in tauri.conf.json and only then runs the installer. A failure changes nothing.
+async fn download_and_install(mut update: Update) -> Result<(), String> {
+    update.timeout = Some(Duration::from_secs(600));
+    update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())
+}
+
+/// One anonymous request to the signed feed (`latest.json`). Background checks run at most
+/// once a day; "Check Now" always asks. A failure is kept in updates.json with its cause.
+async fn check(app: &AppHandle, manual: bool) -> Result<Option<UpdateView>, String> {
+    let st = app.state::<State>();
+    if st.checking.swap(true, Ordering::SeqCst) {
+        return Ok(st.update.lock().unwrap().clone());
+    }
+    let _guard = CheckGuard(&st.checking);
+    let at = updates::now();
+    let mut cache = st.cache.lock().unwrap().clone();
+    if !manual && !cache.check_due(at) {
+        return Ok(None);
+    }
+    cache.last_check = Some(at);
+    let current = env!("CARGO_PKG_VERSION");
+    let found = match updater(app) {
+        Ok(u) => u.check().await.map_err(|e| e.to_string()),
+        Err(e) => Err(e),
+    };
+    let found = match found {
+        Ok(found) => found.filter(|u| updates::is_newer(&u.version, current)),
+        Err(e) => {
+            let cause = format!("Couldn't check for updates: {e}");
+            if !manual {
+                st.log(&cause);
+            }
+            cache.last_error = Some(cause.clone());
+            st.keep(cache);
+            publish(app);
+            return Err(cause);
+        }
+    };
+    cache.last_error = None;
+    let auto = st.core_state().install_updates_automatically;
+    let shown = found.as_ref().filter(|u| cache.should_prompt(&u.version, current, at, manual)).map(|u| UpdateView {
+        version: u.version.clone(),
+        current: current.into(),
+        notice: updates::notice_text("Good Night", &u.version, current),
+        notes: u.body.clone().unwrap_or_default(),
+    });
+    if let Some(v) = &shown {
+        cache.shown_version = Some(v.version.clone());
+        cache.shown_at = Some(at);
+    }
+    st.keep(cache);
+    // With automatic installs on, a background find waits for an idle moment instead of prompting.
+    let background_install = !manual && auto && shown.is_some();
+    *st.pending.lock().unwrap() = if background_install { found.zip(shown.clone()) } else { None };
+    *st.update.lock().unwrap() = if background_install { None } else { shown.clone() };
+    publish(app);
+    Ok(shown)
+}
+
+/// Seconds since the last keyboard or mouse input.
+#[cfg(windows)]
+fn idle_seconds() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::GetTickCount;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    // SAFETY: `info` is a valid LASTINPUTINFO with its size set, as the call requires.
+    if unsafe { GetLastInputInfo(&mut info) } == 0 {
+        return None;
+    }
+    // SAFETY: GetTickCount has no preconditions.
+    Some(u64::from(unsafe { GetTickCount() }.wrapping_sub(info.dwTime)) / 1000)
+}
+
+#[cfg(not(windows))]
+fn idle_seconds() -> Option<u64> {
+    None
+}
+
+/// Installs a pending opt-in update once the user is away and no Good Night window is open.
+/// The installer replaces the app and starts the new version. If anything fails, the current
+/// version keeps running and the prompt comes back with the cause.
+fn install_when_idle(app: &AppHandle) {
+    let st = app.state::<State>();
+    let window_open = app.webview_windows().values().any(|w| w.is_visible().unwrap_or(false));
+    if st.pending.lock().unwrap().is_none() || !updates::idle_enough(idle_seconds(), window_open) {
+        return;
+    }
+    let Some((update, shown)) = st.pending.lock().unwrap().take() else { return };
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let st = handle.state::<State>();
+        st.log(&format!("installing {}", update.version));
+        if let Err(e) = download_and_install(update).await {
+            let cause = format!("Automatic install failed: {e}");
+            st.log(&cause);
+            let mut cache = st.cache.lock().unwrap().clone();
+            cache.last_error = Some(cause);
+            st.keep(cache);
+            *st.update.lock().unwrap() = Some(shown);
+            publish(&handle);
+        }
+    });
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<UpdateView>, String> {
+    check(&app, true).await
+}
+
+/// "Remind Me Later": the prompt returns with the next daily check.
+#[tauri::command]
+fn dismiss_update(app: AppHandle) {
+    *app.state::<State>().update.lock().unwrap() = None;
+    publish(&app);
+}
+
+/// "Skip This Version": no background prompt for it until a newer release appears.
+#[tauri::command]
+fn skip_update(app: AppHandle, version: String) {
+    let st = app.state::<State>();
+    let mut cache = st.cache.lock().unwrap().clone();
+    cache.skipped = Some(version);
+    st.keep(cache);
+    *st.update.lock().unwrap() = None;
+    *st.pending.lock().unwrap() = None;
+    publish(&app);
+}
+
+/// "Install Update": downloads, verifies and installs, then the new version starts.
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let update = app.updater().map_err(|e| e.to_string())?.check().await
+    let update = updater(&app)?.check().await
         .map_err(|e| format!("Couldn't check for updates: {e}"))?
         .ok_or("Good Night is up to date.")?;
-    update.download_and_install(|_, _| {}, || {}).await.map_err(|e| format!("Couldn't install the update: {e}"))?;
+    download_and_install(update).await.map_err(|e| format!("Couldn't install the update: {e}"))?;
     gamma::restore();
     app.restart();
 }
@@ -422,10 +623,13 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             state, set_level, set_brightness, set_enabled, set_follow_sun, set_autostart, set_auto_update,
-            check_update, install_update, open_main, quit, warmth_curve
+            set_install_updates_automatically, check_update, install_update, dismiss_update, skip_update,
+            open_main, quit, warmth_curve
         ])
         .setup(move |app| {
-            let path = app.path().app_config_dir()?.join("settings.json");
+            let dir = app.path().app_config_dir()?;
+            let path = dir.join("settings.json");
+            let cache = updates::Cache::load(&dir.join("updates.json"));
             let settings: Settings = std::fs::read(&path)
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).map_err(|e| eprintln!("goodnight: settings unreadable, using defaults: {e}")).ok())
@@ -437,24 +641,28 @@ fn main() {
                 path,
                 tx: Mutex::new(tx.clone()),
                 error: Mutex::new(None),
+                cache: Mutex::new(cache),
                 update: Mutex::new(None),
+                pending: Mutex::new(None),
+                checking: AtomicBool::new(false),
             });
             // Subscribing replays what the engine said while starting (the first render).
             let notice_app = app.handle().clone();
             app.state::<State>().core.subscribe(move |n| on_notice(&notice_app, n));
 
-            // Daily update check, first one a minute after launch.
+            // Update checks are background work: the first one a minute after launch, then the
+            // daily cache decides. CI and GOODNIGHT_NO_UPDATE_CHECK=1 turn them off.
             let handle = app.handle().clone();
+            let background = updates::background_allowed(|k| std::env::var(k).ok());
             tauri::async_runtime::spawn(async move {
-                let mut wait = Duration::from_secs(60);
+                tokio_sleep(Duration::from_secs(60)).await;
+                updates::remove_staged_installers(&std::env::temp_dir(), &handle.package_info().name);
                 loop {
-                    tokio_sleep(wait).await;
-                    wait = Duration::from_secs(24 * 3600);
-                    if handle.state::<State>().core_state().auto_update {
-                        if let Err(e) = check_update(handle.clone()).await {
-                            eprintln!("goodnight: {e}");
-                        }
+                    if background && handle.state::<State>().core_state().auto_update {
+                        let _ = check(&handle, false).await;
+                        install_when_idle(&handle);
                     }
+                    tokio_sleep(Duration::from_secs(60)).await;
                 }
             });
 
@@ -518,4 +726,90 @@ fn main() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    //! The real updater against a feed on 127.0.0.1 (no other network): the check is one
+    //! anonymous request, and an installer whose signature does not match is refused before
+    //! anything could be installed.
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    /// A throwaway minisign key made for these tests, not the release key.
+    const TEST_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFDNDlFNkY1MDBFNzlEQTIKUldTaW5lY0E5ZVpKclA5WjhtODd3NHQzVnhteVhXZW9yUks2Q0pwSlM5SHZWS3E5RWwwenhOeEwK";
+    /// Its signature of `INSTALLER`.
+    const SIGNATURE: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTaW5lY0E5ZVpKclBwSmVXRFNOdTVCeG51Tk1TaGJkZXNoTkVLNjZNVVlHbCthTEo4dFBSU1hBVlk0emdIRUpVeUovUDZJL3lYSXVoSnNteGtKamsvOFM1cDNIcFhJVGc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NzMwNTQxCWZpbGU6cGF5bG9hZC5iaW4KZTFNSkRTaXdDR0pJczM3VzlCMklFaXZJUlN6YTdpK0lldlRRZW44WmFoU0ZHNTV6MmgxT0VGSXBPN2ZtZ3VSTFlyT05SemlFbGV0SzFKSHU0RzJZQnc9PQo=";
+    const INSTALLER: &[u8] = b"Good Night test installer\n";
+
+    /// Serves latest.json and an installer body; returns the base URL and each request head.
+    fn serve(installer: &'static [u8]) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (url, log) = (base.clone(), seen.clone());
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut head = String::new();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                while reader.read_line(&mut head).unwrap_or(0) > 2 {}
+                let body = if head.starts_with("GET /latest.json ") {
+                    let platform = serde_json::json!({ "signature": SIGNATURE, "url": format!("{url}/installer.exe") });
+                    let platforms: serde_json::Map<String, serde_json::Value> = ["darwin-aarch64", "darwin-x86_64", "linux-x86_64", "windows-x86_64"]
+                        .iter()
+                        .map(|t| (t.to_string(), platform.clone()))
+                        .collect();
+                    serde_json::to_vec(&serde_json::json!({ "version": "9.9.9", "notes": "Fixes.", "platforms": platforms })).unwrap()
+                } else {
+                    installer.to_vec()
+                };
+                log.lock().unwrap().push(head);
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = stream.write_all(&body);
+            }
+        });
+        (base, seen)
+    }
+
+    fn app(base: &str) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({ "pubkey": TEST_PUBKEY, "endpoints": [format!("{base}/latest.json")], "dangerousInsecureTransportProtocol": true }),
+        );
+        tauri::test::mock_builder().plugin(tauri_plugin_updater::Builder::new().build()).build(context).unwrap()
+    }
+
+    #[test]
+    fn the_check_is_one_anonymous_request_and_a_tampered_installer_is_refused() {
+        let (base, seen) = serve(b"Good Night test installer, tampered\n");
+        let app = app(&base);
+        tauri::async_runtime::block_on(async {
+            let update = updater(app.handle()).unwrap().check().await.unwrap().expect("9.9.9 is newer");
+            assert_eq!((update.version.as_str(), update.body.as_deref()), ("9.9.9", Some("Fixes.")));
+            let refused = update.download(|_, _| {}, || {}).await.unwrap_err();
+            assert!(matches!(refused, tauri_plugin_updater::Error::Minisign(_)), "{refused}");
+        });
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "one feed request and one download");
+        let check = seen[0].to_lowercase();
+        assert!(check.starts_with("get /latest.json http/1.1\r\n"), "no query string: {check}");
+        assert!(check.contains("\r\nuser-agent: goodnight-update-check\r\n"), "{check}");
+        for header in check.lines().skip(1).filter_map(|l| l.split(':').next()).filter(|h| !h.is_empty()) {
+            assert!(["host", "user-agent", "accept", "accept-encoding"].contains(&header), "unexpected header {header}");
+        }
+    }
+
+    #[test]
+    fn a_correctly_signed_installer_is_accepted() {
+        let (base, _) = serve(INSTALLER);
+        let app = app(&base);
+        let bytes = tauri::async_runtime::block_on(async {
+            let update = updater(app.handle()).unwrap().check().await.unwrap().unwrap();
+            update.download(|_, _| {}, || {}).await.unwrap()
+        });
+        assert_eq!(bytes, INSTALLER);
+    }
 }
