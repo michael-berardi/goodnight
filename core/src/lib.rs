@@ -34,7 +34,8 @@ pub struct Settings {
     /// Warmth by night when following the sun.
     pub night_level: f64,
     pub brightness: f64,
-    /// Off by default: a shell may only check for updates after the user opts in.
+    /// On by default: interactive shells check the signed public feed at most daily.
+    /// The opt-out is ALSO available through GOODNIGHT_NO_UPDATE_CHECK=1 without changing this value.
     pub auto_update: bool,
 }
 
@@ -47,7 +48,7 @@ impl Default for Settings {
             day_level: 0.0,
             night_level: 0.68,
             brightness: 1.0,
-            auto_update: false,
+            auto_update: true,
         }
     }
 }

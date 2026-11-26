@@ -111,24 +111,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ note: Notification) { Night.shared.stop() }
 }
 
-/// Signed updates through Sparkle. Automatic checks are off by default (Info.plist and the
-/// fallback below); a check reads the public GitHub release feed (SUFeedURL) and the EdDSA key
-/// in Info.plist verifies the download before anything is installed.
+/// Signed updates through Sparkle. A daily anonymous check is on by default in interactive
+/// use (Info.plist and the fallback below); a check reads the public GitHub release feed
+/// (SUFeedURL) and the EdDSA key in Info.plist verifies the download. Automatic installation
+/// stays off unless the Sparkle prompt's opt-in checkbox is used.
 final class Updates: ObservableObject {
     static let shared = Updates()
     private var controller: SPUStandardUpdaterController?
 
+    /// CI, headless/print runs and the documented env kill switch do not start Sparkle's
+    /// scheduler. The saved Settings preference is left untouched for the next normal launch.
+    private static var checksDisabled: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["GOODNIGHT_NO_UPDATE_CHECK"] == "1" || env["CI"] != nil
+    }
+
     func start() {
-        controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        controller = SPUStandardUpdaterController(startingUpdater: !Self.checksDisabled,
+                                                  updaterDelegate: nil, userDriverDelegate: nil)
     }
 
     func checkForUpdates() {
+        guard !Self.checksDisabled else { return }
         NSApp.activate(ignoringOtherApps: true)
         controller?.checkForUpdates(nil)
     }
 
     var automatic: Bool {
-        get { controller?.updater.automaticallyChecksForUpdates ?? false }
+        get { Self.checksDisabled ? false : (controller?.updater.automaticallyChecksForUpdates ?? true) }
         set { controller?.updater.automaticallyChecksForUpdates = newValue; objectWillChange.send() }
     }
 }

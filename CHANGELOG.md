@@ -2,6 +2,19 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-26
+
+### Changed
+
+- Daily anonymous update checks are on by default again on macOS and Windows, in interactive use. Automatic installation stays off; macOS still requires the unchecked-by-default opt-in in Sparkle's prompt, and Windows installs only after you choose **Install**.
+- Checks are skipped in CI, headless/print launches and when `GOODNIGHT_NO_UPDATE_CHECK=1` is set. **Settings → Updates → Check for updates automatically** remains the persistent opt-out.
+- Windows records one check per 24 hours in a private cache file, uses a 4-second timeout, and keeps the cause of a failed check for the Settings sheet. The settings migration now carries forward only the old 0.2 default, leaving an explicit opt-out (or a 0.3 choice) untouched.
+- README Privacy/Updates now describe the anonymous request, and `docs/updates.md` carries the `<!-- update-contract: v1 -->` marker.
+
+### Added
+
+- Privacy tests asserting the new defaults, the environment/noninteractive gates, the daily cache and the old-default migration behaviour. A rendered Windows Settings caption documents the opt-out.
+
 ## [0.3.0] - 2026-11-26
 
 ### Changed
