@@ -6,7 +6,7 @@ import CarapaceKit
 
 public enum GoodNightEngine: CarapaceApp {
     public static let name = "GoodNightEngine"
-    public static let schemaHash: UInt64 = 0xd31400e8f1c7868c
+    public static let schemaHash: UInt64 = 0x69d4284ecaa3a839
 
 
     public struct PresetInfo: Codable, Sendable, Hashable {
@@ -96,9 +96,10 @@ public enum GoodNightEngine: CarapaceApp {
         /// Warmth by night when following the sun.
         public var nightLevel: Double
         public var brightness: Double
+        /// Off by default: a shell may only check for updates after the user opts in.
         public var autoUpdate: Bool
 
-        public init(enabled: Bool = true, followSun: Bool = true, manualLevel: Double = 0.45, dayLevel: Double = 0.0, nightLevel: Double = 0.68, brightness: Double = 1.0, autoUpdate: Bool = true) {
+        public init(enabled: Bool = true, followSun: Bool = true, manualLevel: Double = 0.45, dayLevel: Double = 0.0, nightLevel: Double = 0.68, brightness: Double = 1.0, autoUpdate: Bool = false) {
             self.enabled = enabled
             self.followSun = followSun
             self.manualLevel = manualLevel
@@ -126,7 +127,7 @@ public enum GoodNightEngine: CarapaceApp {
             self.dayLevel = try c.decodeIfPresent(Double.self, forKey: .dayLevel) ?? 0.0
             self.nightLevel = try c.decodeIfPresent(Double.self, forKey: .nightLevel) ?? 0.68
             self.brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? 1.0
-            self.autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
+            self.autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? false
         }
     }
 

@@ -2,6 +2,7 @@
 
 mod gamma;
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Mutex;
@@ -76,8 +77,26 @@ impl State {
         let write = || -> std::io::Result<()> {
             if let Some(dir) = self.path.parent() {
                 std::fs::create_dir_all(dir)?;
+                // On Windows the per-user AppData folder already carries a user-only ACL,
+                // inherited by new files; on Unix make it private explicitly.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+                }
             }
-            std::fs::write(&self.path, serde_json::to_vec_pretty(s)?)
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&self.path)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))?;
+            }
+            serde_json::to_writer_pretty(&mut file, s).map_err(std::io::Error::other)?;
+            file.flush()
         };
         if let Err(e) = write() {
             eprintln!("goodnight: cannot save settings to {}: {e}", self.path.display());

@@ -17,8 +17,8 @@
 
 ## Install
 
-- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-mac.dmg), open it, and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.2.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.3.0-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.3.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
@@ -60,9 +60,19 @@ Presets and schedule changes fade over one second; sliders respond immediately. 
 
 The Windows installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`. Normal quit restores captured display curves; forced termination is not guaranteed to restore them.
 
-### Updates and privacy
+### Updates
 
-Settings stay on your computer; there is no account. Automatic update checks run daily and can be disabled in Settings. Manual checks are under **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. Updates use GitHub Releases for feeds and downloads, and the updater verifies update signatures before installation. Update signatures are separate from installer code-signing.
+Automatic checks are off by default. Turn them on in Settings for a daily check, or use **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows at any time. Updates come from GitHub Releases and are verified with the public key shipped in the app before installation. Update signatures are separate from installer code-signing. See [Privacy](#privacy) for what a check sends.
+
+## Privacy
+
+By default Good Night makes no network connections. The only network feature is the signed update check above, which happens only after you turn on automatic checks or choose a manual check.
+
+There is no telemetry, analytics, crash reporting, account, install ID or machine fingerprint. An update check is an HTTPS GET for a public feed on GitHub Releases; as with any web request, GitHub sees your IP address and standard request headers. No settings, warmth schedule, file contents or unique identifier is sent.
+
+Settings are stored only on this machine: `~/Library/Preferences/com.libertydesignstudio.goodnight.plist` on macOS (UserDefaults) and `settings.json` in the app's config folder under your Windows user profile. They contain warmth, brightness, schedule, menu-bar/Dock visibility and the update preference only — no prompts, files, credentials or location. The app writes no log or history files; diagnostics go to the macOS unified log or the Windows console. The UI uses bundled assets and system fonts, with no third-party fonts or scripts.
+
+To delete everything the app saved: quit Good Night, then run `defaults delete com.libertydesignstudio.goodnight` on macOS, or delete the `settings.json` file (and the containing Good Night config folder) on Windows. There are no user-configured cloud services or other third parties; GitHub is contacted only for the updates you request.
 
 ## Build from source
 

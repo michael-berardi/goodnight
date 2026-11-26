@@ -33,7 +33,8 @@ final class Night: ObservableObject {
         let settings = GoodNightEngine.Settings(
             enabled: defaults.bool(forKey: "enabled"), followSun: defaults.bool(forKey: "followSun"),
             manualLevel: defaults.double(forKey: "manualLevel"), dayLevel: defaults.double(forKey: "dayLevel"),
-            nightLevel: defaults.double(forKey: "nightLevel"), brightness: defaults.double(forKey: "brightness"))
+            nightLevel: defaults.double(forKey: "nightLevel"), brightness: defaults.double(forKey: "brightness"),
+            autoUpdate: false) // Sparkle owns the update preference on macOS; the engine never checks.
         let zone = TimeZone.current
         do {
             engine = try Engine(

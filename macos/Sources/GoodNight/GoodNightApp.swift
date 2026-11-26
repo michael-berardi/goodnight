@@ -111,8 +111,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ note: Notification) { Night.shared.stop() }
 }
 
-/// Signed updates through Sparkle: a daily check against the GitHub release feed (SUFeedURL),
-/// verified with the EdDSA key in Info.plist before anything is installed.
+/// Signed updates through Sparkle. Automatic checks are off by default (Info.plist and the
+/// fallback below); a check reads the public GitHub release feed (SUFeedURL) and the EdDSA key
+/// in Info.plist verifies the download before anything is installed.
 final class Updates: ObservableObject {
     static let shared = Updates()
     private var controller: SPUStandardUpdaterController?
@@ -127,7 +128,7 @@ final class Updates: ObservableObject {
     }
 
     var automatic: Bool {
-        get { controller?.updater.automaticallyChecksForUpdates ?? true }
+        get { controller?.updater.automaticallyChecksForUpdates ?? false }
         set { controller?.updater.automaticallyChecksForUpdates = newValue; objectWillChange.send() }
     }
 }

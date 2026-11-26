@@ -2,6 +2,21 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-26
+
+### Changed
+
+- Automatic update checks are now off by default on macOS and Windows. They run only after the user enables them; a manual check is still always available. Updates remain signed and verified.
+
+### Added
+
+- A `## Privacy` section in the README describing the only network request, local storage, retention and deletion.
+- A privacy regression test that fails if telemetry/analytics packages are reintroduced or either platform defaults to automatic update checks.
+
+### Fixed
+
+- Windows now creates its settings directory and file with private permissions on Unix-like hosts (0700/0600); it continues to inherit the user-only AppData ACL on Windows.
+
 ## [0.2.0] - 2026-10-16
 
 ### Changed
