@@ -103,13 +103,7 @@ impl State {
     }
 
     fn save(&self, s: &Settings) {
-        let write = || -> std::io::Result<()> {
-            if let Some(dir) = self.path.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            std::fs::write(&self.path, serde_json::to_vec_pretty(s)?)
-        };
-        if let Err(e) = write() {
+        if let Err(e) = write_settings(&self.path, s) {
             eprintln!("goodnight: cannot save settings to {}: {e}", self.path.display());
         }
     }
@@ -134,6 +128,25 @@ impl State {
     fn log(&self, line: &str) {
         let _ = updates::append_log(&self.dir().join("updates.log"), updates::now(), line);
     }
+}
+
+/// Settings are private to the user. On Windows the per-user AppData folder already carries a
+/// user-only ACL that new files inherit; on Unix the folder is made 0700 and the file 0600.
+fn write_settings(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+        #[cfg(unix)]
+        std::fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    // An older file keeps its mode on open; tighten it too.
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    std::io::Write::write_all(&mut file, &serde_json::to_vec_pretty(s)?)
 }
 
 fn view(app: &AppHandle) -> View {
@@ -811,5 +824,25 @@ mod tests {
             update.download(|_, _| {}, || {}).await.unwrap()
         });
         assert_eq!(bytes, INSTALLER);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_are_written_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("goodnight-settings-test-{}", std::process::id()));
+        let path = dir.join("config").join("settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let mut s = Settings::default();
+        s.brightness = 0.5;
+        write_settings(&path, &s).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600, "an existing settings file is tightened");
+        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        let back: Settings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(back.brightness, 0.5);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

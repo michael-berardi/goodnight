@@ -6,8 +6,8 @@ is on by default; installing automatically is an opt-in and off by default.
 
 ## The prompt
 
-When a check finds a newer release, Good Night shows "Good Night 0.4.0 is available — you have
-0.3.0." with the release notes and three choices:
+When a check finds a newer release, Good Night shows "Good Night 0.6.0 is available — you have
+0.5.0." with the release notes and three choices:
 
 - **Install Update** downloads, verifies and installs it, then starts the new version.
 - **Remind Me Later** hides it until the next daily check.
@@ -18,7 +18,7 @@ until you choose it.
 
 On macOS this is Sparkle's standard window. If Good Night runs without a Dock icon (menu bar
 only), a scheduled check never opens a window over your work: the menu bar popover shows
-"Good Night 0.4.0 is available" with **Review**, which opens the prompt. On Windows the prompt
+"Good Night 0.6.0 is available" with **Review**, which opens the prompt. On Windows the prompt
 appears at the top of the Good Night window, and the tray flyout shows the same one-line
 banner.
 

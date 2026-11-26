@@ -1,6 +1,6 @@
 [package]
 name = "goodnight"
-version = "0.3.0"
+version = "0.5.0"
 description = "Warm, dim and schedule your screen. Tiny, fast and free."
 authors = ["Michael Berardi"]
 license = "MIT"

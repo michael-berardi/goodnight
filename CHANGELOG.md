@@ -2,7 +2,7 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.3.0] - 2026-11-26
+## [0.5.0] - 2026-11-26
 
 ### Added
 
@@ -10,11 +10,14 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Settings › Updates**: check automatically (on), install automatically (off), and the version with **Check Now** on one row.
 - On Windows, automatic installs wait until no Good Night window is open and you have been away for 10 minutes.
 - `GOODNIGHT_NO_UPDATE_CHECK=1` or `CI` turns background checks off.
+- PRIVACY.md lists what a check sends, what is stored where, and how to delete it.
 
 ### Changed
 
 - Update checks are anonymous: a fixed User-Agent, no app version, at most once a day and never during startup.
 - On Windows, a failed check shows "last check failed" in Settings instead of an error, and update files stay small and are removed when checks are turned off or the app is uninstalled.
+- Windows settings are written owner-only (0700 folder, 0600 file where the system supports it; the user-only AppData folder otherwise).
+- A privacy test fails if analytics, telemetry or crash-reporting packages appear in the sources.
 
 ## [0.2.0] - 2026-10-16
 
