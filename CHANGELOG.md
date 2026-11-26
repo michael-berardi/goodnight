@@ -7,6 +7,7 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ### Changed
 
 - Automatic update checks are now off by default on macOS and Windows. They run only after the user enables them; a manual check is still always available. Updates remain signed and verified.
+- Upgrading from 0.2.0 or earlier also turns automatic checks off, because those versions saved the old default rather than a choice. Turn them back on in Settings if you want them.
 
 ### Added
 

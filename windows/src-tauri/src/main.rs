@@ -56,6 +56,35 @@ struct State {
     update: Mutex<Option<String>>,
 }
 
+/// Settings files written by 0.3.0 or later carry this version. Older files saved
+/// `autoUpdate: true` as the old default, not as a choice, so they start with checks off.
+const SETTINGS_VERSION: u64 = 1;
+
+fn load_settings(bytes: &[u8]) -> Settings {
+    let raw: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("goodnight: settings unreadable, using defaults: {e}");
+            return Settings::default();
+        }
+    };
+    let version = raw.get("settingsVersion").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mut settings: Settings = serde_json::from_value(raw).unwrap_or_else(|e| {
+        eprintln!("goodnight: settings unreadable, using defaults: {e}");
+        Settings::default()
+    });
+    if version < SETTINGS_VERSION {
+        settings.auto_update = false;
+    }
+    settings
+}
+
+fn stamped(s: &Settings) -> serde_json::Value {
+    let mut value = serde_json::to_value(s).expect("settings always serialize");
+    value["settingsVersion"] = SETTINGS_VERSION.into();
+    value
+}
+
 impl State {
     fn core_state(&self) -> goodnight_core::State {
         serde_json::from_str(&self.core.snapshot()).expect("goodnight-core always writes valid state JSON")
@@ -85,17 +114,20 @@ impl State {
                     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
                 }
             }
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .open(&self.path)?;
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).truncate(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&self.path)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))?;
             }
-            serde_json::to_writer_pretty(&mut file, s).map_err(std::io::Error::other)?;
+            serde_json::to_writer_pretty(&mut file, &stamped(s)).map_err(std::io::Error::other)?;
             file.flush()
         };
         if let Err(e) = write() {
@@ -445,10 +477,7 @@ fn main() {
         ])
         .setup(move |app| {
             let path = app.path().app_config_dir()?.join("settings.json");
-            let settings: Settings = std::fs::read(&path)
-                .ok()
-                .and_then(|b| serde_json::from_slice(&b).map_err(|e| eprintln!("goodnight: settings unreadable, using defaults: {e}")).ok())
-                .unwrap_or_default();
+            let settings: Settings = std::fs::read(&path).ok().map(|b| load_settings(&b)).unwrap_or_default();
             let (time_zone, utc_offset_seconds) = system_zone();
             let core = Runtime::<GoodNight>::start(Config { settings, time_zone, utc_offset_seconds, fixed_now: None });
             app.manage(State {
@@ -537,4 +566,30 @@ fn main() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pre_0_3_settings_start_with_update_checks_off() {
+        let old = br#"{"enabled":true,"autoUpdate":true,"brightness":0.8}"#;
+        let s = load_settings(old);
+        assert!(!s.auto_update);
+        assert_eq!(s.brightness, 0.8);
+    }
+
+    #[test]
+    fn a_choice_saved_by_0_3_is_kept() {
+        let mut s = Settings::default();
+        s.auto_update = true;
+        let bytes = serde_json::to_vec(&stamped(&s)).unwrap();
+        assert!(load_settings(&bytes).auto_update);
+    }
+
+    #[test]
+    fn unreadable_settings_fall_back_to_defaults() {
+        assert!(!load_settings(b"not json").auto_update);
+    }
 }

@@ -112,8 +112,13 @@ fn macos_automatic_checks_default_to_off_in_shell_and_info_plist() {
 #[test]
 fn windows_periodic_check_is_gated_on_the_user_setting() {
     let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
-    assert!(
-        main.contains("core_state().auto_update"),
-        "the Windows timer must check the user setting before contacting the feed"
-    );
+    let gate = main
+        .find("if handle.state::<State>().core_state().auto_update {")
+        .expect("the Windows timer must check the user setting before contacting the feed");
+    let body = &main[gate..];
+    let call = body.find("check_update(handle").expect("timer calls check_update");
+    let close = body.find("\n                    }").expect("gate block closes");
+    assert!(call < close, "check_update must sit inside the auto_update gate");
+    assert_eq!(main.matches("check_update(handle.clone())").count(), 1, "no ungated timer check");
+    assert!(main.contains("settings.auto_update = false"), "pre-0.3 settings must reset the old default");
 }
