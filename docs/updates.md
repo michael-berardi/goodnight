@@ -40,9 +40,14 @@ unparseable versions are ignored.
   release notes, **Install Update**, **Remind Me Later** and **Skip This Version**.
 - On Windows, **Check now** reports the newer version in Settings; **Install** downloads and
   verifies the signed release before installation. Installation waits for your explicit choice.
-- **Automatically download and install updates in the future** is unchecked by default in the
-  Sparkle dialog. Good Night 0.4.2 does not auto-install on Windows; check results only produce a
-  prompt, so a background check cannot replace the version you are using.
+- **Automatically download and install updates in the future** is an unchecked opt-in in macOS's
+  Sparkle dialog only. The exact platform deviation on Windows (including 0.4.2) is that there is
+  **no Install-updates-automatically toggle**: the **Check for updates automatically** switch
+  controls only the daily feed check, and a found update installs only when you press **Install**.
+  Windows also has **no Remind Me Later and no Skip This Version buttons**; those exist only in
+  Sparkle's macOS dialog. The Windows Settings row offers **Check now**, then **Install** for a
+  found version (or **Checks disabled** when checks are turned off). A background check therefore
+  cannot silently replace the version you are using.
 
 ## Privacy and retention
 

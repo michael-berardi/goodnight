@@ -17,8 +17,10 @@
 
 ## Install
 
-- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.4.2-mac.dmg), open it, and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.4.2-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+- **macOS 13 or later, Apple silicon and Intel:** [Download the published DMG](https://github.com/michael-berardi/goodnight/releases/download/v0.2.0/GoodNight-0.2.0-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the published installer](https://github.com/michael-berardi/goodnight/releases/download/v0.2.0/GoodNight-0.2.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+
+These are the assets attached to the latest published release, v0.2.0. This development branch carries later, unpublished changes, so its version is not downloadable yet.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
@@ -62,7 +64,7 @@ The Windows installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Micros
 
 ### Updates
 
-Automatic checks are **on by default** in interactive use, including the hidden Windows login item: one anonymous request to the signed GitHub Releases feed at most once every 24 hours. The Windows background request has a 4-second timeout; macOS delegates the feed request to Sparkle, whose public API has no per-request timeout, so no equivalent cap is enforced there. The macOS request uses a fixed User-Agent and sends no system profile. Automatic installation is **off by default**; macOS offers it as an unchecked opt-in in the update dialog. Turn checks off in **Settings → Updates → Check for updates automatically** or with `GOODNIGHT_NO_UPDATE_CHECK=1`, in which case Windows **Check now** says **Checks disabled** rather than **Up to date**. Manual checks remain available via **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. See [docs/updates.md](docs/updates.md) for the full contract, cache and failure behaviour.
+Automatic checks are **on by default** in interactive use, including the hidden Windows login item: one anonymous request to the signed GitHub Releases feed at most once every 24 hours. The Windows background request has a 4-second timeout; macOS delegates the feed request to Sparkle, whose public API has no per-request timeout, so no equivalent cap is enforced there. The macOS request uses a fixed User-Agent and sends no system profile. Automatic installation is **off by default**; macOS offers it as an unchecked opt-in in the update dialog, while Windows has no automatic-install toggle and no Remind/Skip buttons. Turn checks off in **Settings → Updates → Check for updates automatically** or with `GOODNIGHT_NO_UPDATE_CHECK=1`, in which case Windows **Check now** says **Checks disabled** rather than **Up to date**. Manual checks remain available via **Good Night › Check for Updates…** on macOS and **Settings › Check now** on Windows. See [docs/updates.md](docs/updates.md) for the full contract, cache and failure behaviour.
 
 ## Privacy
 

@@ -8,10 +8,11 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 - Removed the redundant caption under the Windows **Check for updates automatically** switch; the control label and [docs/updates.md](docs/updates.md) already explain the anonymous daily check and opt-out.
 - Documented why the 4-second timeout is Windows-only: Sparkle owns the macOS appcast request and exposes no supported per-request timeout, so Good Night does not enforce that cap on macOS.
+- Documented the exact Windows update-dialog deviation: no Install-updates-automatically toggle and no Remind/Skip buttons.
 
 ### Fixed
 
-- Patch version bumped in both app manifests, the bundled version strings, the release links and the regression tests.
+- Patch version bumped in both app manifests and the bundled version strings. README install links now point at the published v0.2.0 assets instead of unpublished 0.4.2 files; the branch version stays above the published release.
 
 ## [0.4.1] - 2026-11-26
 

@@ -202,6 +202,18 @@ fn disabled_check_now_is_not_reported_as_up_to_date() {
 }
 
 #[test]
+fn download_links_are_published_and_windows_deviations_are_documented() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    assert!(!readme.contains("GoodNight-0.4.2-mac.dmg"), "no unpublished macOS asset link");
+    assert!(!readme.contains("GoodNight-0.4.2-windows-x64-setup.exe"), "no unpublished Windows asset link");
+    assert!(readme.contains("releases/download/v0.2.0/GoodNight-0.2.0-mac.dmg"));
+    assert!(readme.contains("releases/download/v0.2.0/GoodNight-0.2.0-windows-x64-setup.exe"));
+    let docs = fs::read_to_string(root().join("docs/updates.md")).unwrap();
+    assert!(docs.contains("**no Install-updates-automatically toggle**"));
+    assert!(docs.contains("**no Remind Me Later and no Skip This Version buttons**"));
+}
+
+#[test]
 fn patch_version_is_bumped_in_every_manifest() {
     for path in [
         "core/Cargo.toml",
