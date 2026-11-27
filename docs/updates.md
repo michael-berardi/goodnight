@@ -47,8 +47,9 @@ unparseable versions are ignored.
     **Good Night › Check for Updates…** menu command, and auto-install is offered as the unchecked
     checkbox in Sparkle's prompt.
   - **Windows Settings** has **Check for updates automatically**, the installed version, **Check now**
-    and **Install**, but **no Install-updates-automatically toggle** and no **Remind Me Later** or
-    **Skip This Version** buttons; those exist only in Sparkle's macOS dialog. A found-update banner
+    and **Install**, but **no Install-updates-automatically toggle** and
+    **no Remind Me Later and no Skip This Version buttons**; those exist only in Sparkle's macOS
+    dialog. A found-update banner
     says `Good Night <new> is ready · Install`; it does not show the current version or release notes.
   A background check therefore cannot silently replace the version you are using.
 
