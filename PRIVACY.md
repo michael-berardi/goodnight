@@ -62,7 +62,7 @@ macOS cache and other Windows accounts need the separate steps above.
 
 ## Bounds you can rely on
 
-- At most **one automatic** update check per 24 hours, and only while update checks are on; Check Now and update downloads are separate requests you start. See
+- At most **one automatic** update check per 24 hours, and only while update checks are on; Check Now is a request you start, and update downloads are requests you start unless you opted into automatic installation, in which case the updater downloads without waiting for you. See
   [docs/updates.md](docs/updates.md) for the full contract, the opt-out switch and the
   `GOODNIGHT_NO_UPDATE_CHECK=1` environment kill switch.
 - Good Night's own profile files are bounded: Windows keeps one settings file, one update-check
