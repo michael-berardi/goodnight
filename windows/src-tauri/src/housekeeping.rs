@@ -1,12 +1,12 @@
 //! Local debris housekeeping.
 //!
-//! Good Night's bounded Windows files include `settings.json` and `updates.json` in the app
-//! config folder (and an older `update-check.json` from earlier builds), plus a `.tmp` next to
-//! either while an atomic write is in flight. The retention rules live in
-//! `goodnight_core::retention` (pure and tested there); this module deletes only expired files
-//! and never touches the update-check logic: an expired record is simply a record whose lifetime
-//! ran out, and a missing record only means the next check is due. The updater's `%TEMP%` staging
-//! folders are swept separately, by `updates::remove_staged_installers`, at startup.
+//! The Windows shell writes `settings.json`, `updates.json` and `updates.log` in the app config
+//! folder, plus `updates.json.tmp` for the instant an atomic write of the cache is in flight. The
+//! retention rules live in `goodnight_core::retention` (pure and tested there); this module
+//! deletes only expired files and never drives the update check: an expired cache is simply a
+//! record whose lifetime ran out, and a missing one only means the next check is due. The log is
+//! bounded by size in `updates.rs`, and the updater's `%TEMP%` staging folders are removed by
+//! `updates::remove_staged_installers`.
 //!
 //! Lifetimes are documented in `PRIVACY.md`.
 
@@ -73,7 +73,7 @@ mod tests {
         let dir = scratch("fresh");
         let settings = write(&dir, retention::SETTINGS_FILE_NAME, "{}");
         let record = write(&dir, retention::CHECK_RECORD_FILE_NAME, "{}");
-        let temp = write(&dir, retention::TEMP_NAMES[1], "{}");
+        let temp = write(&dir, retention::TEMP_NAMES[0], "{}");
         let removed = sweep(&dir);
         assert!(removed.is_empty(), "nothing written a moment ago is debris");
         for path in [settings, record, temp] {
@@ -86,8 +86,8 @@ mod tests {
     fn an_interrupted_write_is_removed_but_settings_are_kept() {
         let dir = scratch("interrupted");
         let settings = write(&dir, retention::SETTINGS_FILE_NAME, r#"{"enabled":true}"#);
-        let record = write(&dir, retention::CHECK_RECORD_FILE_NAME, r#"{"lastCheckedAt":1}"#);
-        let temp = write(&dir, retention::TEMP_NAMES[1], "{\"lastChe");
+        let record = write(&dir, retention::CHECK_RECORD_FILE_NAME, r#"{"lastCheck":1}"#);
+        let temp = write(&dir, retention::TEMP_NAMES[0], "{\"lastChe");
         let now = now_secs() + retention::TEMP_LIFETIME_SECS + 1;
         let removed = sweep_at(&dir, now);
         assert_eq!(removed, vec![temp.clone()], "only the abandoned temp file goes");
@@ -101,7 +101,7 @@ mod tests {
     fn an_expired_check_record_is_removed_and_a_fresh_one_kept() {
         let dir = scratch("record");
         let settings = write(&dir, retention::SETTINGS_FILE_NAME, "{}");
-        let record = write(&dir, retention::CHECK_RECORD_FILE_NAME, r#"{"lastCheckedAt":1,"failure":null}"#);
+        let record = write(&dir, retention::CHECK_RECORD_FILE_NAME, r#"{"lastCheck":1,"lastError":null}"#);
         let after_a_week = sweep_at(&dir, now_secs() + 7 * 24 * 3600);
         assert!(after_a_week.is_empty(), "a weekly record is inside its lifetime");
         assert!(record.exists());
@@ -117,11 +117,12 @@ mod tests {
         let dir = scratch("foreign");
         let foreign = write(&dir, "installer-notes.txt", "keep");
         let lookalike = write(&dir, "settings.json.bak", "keep");
+        let log = write(&dir, "updates.log", "1800000000 installing 0.6.0\n");
         let nested = dir.join("logs");
         std::fs::create_dir_all(&nested).unwrap();
         let removed = sweep_at(&dir, u64::MAX / 2);
         assert!(removed.is_empty(), "the sweeper only removes the app's own temp and cache files");
-        for path in [foreign, lookalike, nested] {
+        for path in [foreign, lookalike, log, nested] {
             assert!(path.exists(), "{} must survive", path.display());
         }
         let _ = std::fs::remove_dir_all(&dir);

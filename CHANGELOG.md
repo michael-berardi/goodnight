@@ -2,23 +2,23 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.5.2] - 2026-11-26
+## [0.5.2] - 2026-11-27
 
 ### Added
 
-- Automatic retention bounds for local debris: an abandoned atomic-write temporary file is swept at the next launch after one hour, and the Windows update-check record after 30 days. The policy lives in `core/src/retention.rs` and the sweep in `windows/src-tauri/src/housekeeping.rs`.
-- The Windows updater's abandoned installer in `%TEMP%` is removed at the next launch, and its staging folder if empty; only this app's own staging names are opened.
-- Regression tests tying the documented lifetimes, the sweep wiring, the update-check opt-outs and the local-file inventory together.
+- Bounded local files on Windows: an abandoned `updates.json.tmp` is deleted at the next launch once it is an hour old, and an `updates.json` that no check has rewritten for 30 days is deleted too (a skipped version is then offered again). Settings never expire. The policy is in `core/src/retention.rs`; the sweep in `windows/src-tauri/src/housekeeping.rs` runs at startup, before any file is read.
+- Privacy regression tests that keep PRIVACY.md, the lifetimes, the launch sweep, the uninstall hook and the README summary in agreement.
 
 ### Changed
 
-- `PRIVACY.md` is now the full disclosure: every file written on macOS and Windows, what it contains, its lifetime and how to remove it. The README's **Privacy** section is a short summary linking to it.
-- The Windows uninstaller now removes the machine-wide `GdiIcmGammaRange` value only when it still holds the value this installer wrote, and cleans the uninstalling profile's settings and cache folders. In-app updates keep all of them.
-- The Windows background check remains anonymous and daily with a Settings opt-out and the `GOODNIGHT_NO_UPDATE_CHECK=1` / CI kill switches; it is skipped for standalone hidden or agent launches, while the `--autostart --hidden` login item still checks.
+- A real Windows uninstall now also removes the machine-wide `GdiIcmGammaRange` value, but only while it still holds the 256 the installer wrote, and the uninstalling account's settings, update files and WebView2 data, without needing **Delete the application data**. In-app updates keep all of them.
+- The Windows updater's leftover installer in the temp folder is removed more carefully: a minute after the next launch, only the `Good Night-<version>-installer.exe` inside a `Good Night-<version>-updater-<random>` folder is deleted, then the folder if it is empty. A folder holding anything else is kept.
+- PRIVACY.md lists every file and registry value Good Night writes on each platform, what it holds, how long it lives and what removes it, including Sparkle's cache and the login items. The README **Privacy** section stays a short summary that links it.
+- The daily update check is unchanged: anonymous, on by default, off with **Settings › Updates**, `GOODNIGHT_NO_UPDATE_CHECK=1` or `CI`.
 
 ### Fixed
 
-- Version aligned at 0.5.2 across both Cargo manifests and lockfiles, the Tauri config, the macOS Info.plist (build 7), the update docs and the privacy test expectations. README install links still name the published v0.5.0 assets.
+- The docs no longer say Sparkle removes each macOS download after installing: Sparkle keeps downloads in its cache and deletes those 10 or more days old when it next downloads or installs.
 
 ## [0.5.0] - 2026-11-26
 

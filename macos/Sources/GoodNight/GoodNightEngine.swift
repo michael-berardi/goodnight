@@ -6,7 +6,7 @@ import CarapaceKit
 
 public enum GoodNightEngine: CarapaceApp {
     public static let name = "GoodNightEngine"
-    public static let schemaHash: UInt64 = 0x7bc17b202ec83347
+    public static let schemaHash: UInt64 = 0x83f1d8d994c56376
 
 
     public struct PresetInfo: Codable, Sendable, Hashable {
@@ -99,8 +99,7 @@ public enum GoodNightEngine: CarapaceApp {
         /// Warmth by night when following the sun.
         public var nightLevel: Double
         public var brightness: Double
-        /// On by default: interactive shells check the signed public feed at most daily.
-        /// The opt-out is ALSO available through GOODNIGHT_NO_UPDATE_CHECK=1 without changing this value.
+        /// Check for a newer release once a day (on by default).
         public var autoUpdate: Bool
         /// Download and install a newer release without asking (off by default).
         public var installUpdatesAutomatically: Bool

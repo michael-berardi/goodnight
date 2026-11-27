@@ -38,7 +38,5 @@
 	<string>Ey+2KA3aM5OZp4OaEiiw+reZZD8r6/sRpCC+rHOG4Cg=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
-	<key>SUSendProfileInfo</key>
-	<false/>
 </dict>
 </plist>

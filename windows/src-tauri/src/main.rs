@@ -4,7 +4,6 @@ mod gamma;
 mod housekeeping;
 mod updates;
 
-use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -42,9 +41,6 @@ struct View {
     error: Option<String>,
     version: &'static str,
     auto_update: bool,
-    /// True when the environment or CI has turned background checks off. Check Now must then
-    /// say so, never "Up to date".
-    checks_disabled: bool,
     install_updates_automatically: bool,
     /// A newer signed release, when one was found.
     update: Option<UpdateView>,
@@ -62,52 +58,6 @@ struct UpdateView {
     notes: String,
 }
 
-/// A login item is a real user even though its window is suppressed; a standalone `--hidden`
-/// launch is headless/agent use and must stay silent. CI wins in either case.
-fn checks_allowed(hidden: bool, autostart: bool, ci: bool, env_opt_out: bool) -> bool {
-    (!hidden || autostart) && !ci && !env_opt_out
-}
-
-fn env_opt_out() -> bool {
-    // Exactly the documented kill switch. Other values leave the switch alone.
-    std::env::var(OsStr::new("GOODNIGHT_NO_UPDATE_CHECK")).ok().as_deref() == Some("1")
-}
-
-/// The Windows feed request cap. Sparkle owns the macOS appcast GET, which has no supported
-/// per-request timeout; this is Windows-only and is documented in docs/updates.md.
-const CHECK_TIMEOUT: Duration = Duration::from_secs(4);
-
-/// Settings written by 0.4.0 or later carry this version.
-const SETTINGS_VERSION: u64 = 2;
-
-/// Only the value 0.2 wrote as its default is carried forward. An explicit opt-out and any
-/// choice recorded by a later version survive untouched.
-fn load_settings(bytes: &[u8]) -> Settings {
-    let raw: serde_json::Value = match serde_json::from_slice(bytes) {
-        Ok(value) => value,
-        Err(e) => {
-            eprintln!("goodnight: settings unreadable, using defaults: {e}");
-            return Settings::default();
-        }
-    };
-    let version = raw.get("settingsVersion").and_then(|v| v.as_u64()).unwrap_or(0);
-    let old_default = raw.get("autoUpdate").and_then(|v| v.as_bool()) == Some(true);
-    let mut settings: Settings = serde_json::from_value(raw).unwrap_or_else(|e| {
-        eprintln!("goodnight: settings unreadable, using defaults: {e}");
-        Settings::default()
-    });
-    if version == 0 && old_default {
-        settings.auto_update = Settings::default().auto_update;
-    }
-    settings
-}
-
-fn stamped(s: &Settings) -> serde_json::Value {
-    let mut value = serde_json::to_value(s).expect("settings always serialize");
-    value["settingsVersion"] = SETTINGS_VERSION.into();
-    value
-}
-
 enum Msg {
     Render { animated: bool },
     Quit,
@@ -121,7 +71,6 @@ struct State {
     error: Mutex<Option<String>>,
     /// updates.json: what the update checks found (see updates.rs).
     cache: Mutex<updates::Cache>,
-    cache_path: PathBuf,
     /// The release the prompt shows.
     update: Mutex<Option<UpdateView>>,
     /// An opt-in update waiting for an idle moment.
@@ -198,7 +147,7 @@ fn write_settings(path: &std::path::Path, s: &Settings) -> std::io::Result<()> {
     // An older file keeps its mode on open; tighten it too.
     #[cfg(unix)]
     std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-    std::io::Write::write_all(&mut file, &serde_json::to_vec_pretty(&stamped(s))?)
+    std::io::Write::write_all(&mut file, &serde_json::to_vec_pretty(s)?)
 }
 
 fn view(app: &AppHandle) -> View {
@@ -223,7 +172,6 @@ fn view(app: &AppHandle) -> View {
         error,
         version: env!("CARGO_PKG_VERSION"),
         auto_update: c.auto_update,
-        checks_disabled: env_opt_out() || std::env::var_os("CI").is_some(),
         install_updates_automatically: c.install_updates_automatically,
         update,
         update_error,
@@ -344,7 +292,7 @@ fn updater<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<tauri_plugin_updater
     };
     app.updater_builder()
         .header("User-Agent", updates::USER_AGENT)
-        .and_then(|b| b.timeout(CHECK_TIMEOUT).on_before_exit(before_exit).build())
+        .and_then(|b| b.timeout(Duration::from_secs(4)).on_before_exit(before_exit).build())
         .map_err(|e| e.to_string())
 }
 
@@ -664,15 +612,13 @@ fn main() {
     }));
 
     let hidden = std::env::args().any(|a| a == "--hidden");
-    let autostart = std::env::args().any(|a| a == "--autostart");
     let (tx, rx) = mpsc::channel();
     let mut rx = Some(rx);
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Login is an interactive user with no window, marked so the daily check still runs.
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--autostart", "--hidden"])))
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -697,21 +643,14 @@ fn main() {
         .setup(move |app| {
             let dir = app.path().app_config_dir()?;
             let path = dir.join("settings.json");
-            let cache_path = dir.join("updates.json");
-            let handle = app.handle().clone();
-            // Clear debris before anything reads a file: an interrupted atomic write expires
-            // after an hour, an update record after 30 days, and an abandoned updater installer
-            // in %TEMP% is removed at this launch. The policy lives in core/src/retention.rs;
-            // PRIVACY.md documents each lifetime. Settings never expire.
-            let cache_dir = app.path().app_cache_dir().ok();
-            for folder in [Some(&dir), cache_dir.as_ref()].into_iter().flatten() {
-                housekeeping::sweep(folder);
-            }
-            updates::remove_staged_installers(&std::env::temp_dir(), &handle.package_info().name);
-            let cache = updates::Cache::load(&cache_path);
+            // Clear expired debris before anything reads a file: an abandoned updates.json.tmp
+            // goes after an hour, an updates.json left unwritten for 30 days goes too.
+            // Settings never expire. Policy: core/src/retention.rs; lifetimes: PRIVACY.md.
+            housekeeping::sweep(&dir);
+            let cache = updates::Cache::load(&dir.join("updates.json"));
             let settings: Settings = std::fs::read(&path)
                 .ok()
-                .map(|b| load_settings(&b))
+                .and_then(|b| serde_json::from_slice(&b).map_err(|e| eprintln!("goodnight: settings unreadable, using defaults: {e}")).ok())
                 .unwrap_or_default();
             let (time_zone, utc_offset_seconds) = system_zone();
             let core = Runtime::<GoodNight>::start(Config { settings, time_zone, utc_offset_seconds, fixed_now: None });
@@ -721,7 +660,6 @@ fn main() {
                 tx: Mutex::new(tx.clone()),
                 error: Mutex::new(None),
                 cache: Mutex::new(cache),
-                cache_path,
                 update: Mutex::new(None),
                 pending: Mutex::new(None),
                 checking: AtomicBool::new(false),
@@ -730,19 +668,17 @@ fn main() {
             let notice_app = app.handle().clone();
             app.state::<State>().core.subscribe(move |n| on_notice(&notice_app, n));
 
-            // Update checks are background work: the first one a minute after launch, then at
-            // most daily. A hidden agent launch, CI, the env opt-out, the Settings switch and
-            // the cache all keep the feed silent; Check Now is still an explicit request.
+            // Update checks are background work: the first one a minute after launch, then the
+            // daily cache decides. CI and GOODNIGHT_NO_UPDATE_CHECK=1 turn them off.
+            let handle = app.handle().clone();
             let background = updates::background_allowed(|k| std::env::var(k).ok());
             tauri::async_runtime::spawn(async move {
                 tokio_sleep(Duration::from_secs(60)).await;
+                // A minute in, any installer that started this run has exited, so what an
+                // update left in %TEMP% can go. This is the app's only %TEMP% sweep (updates.rs).
+                updates::remove_staged_installers(&std::env::temp_dir(), &handle.package_info().name);
                 loop {
-                    let st = handle.state::<State>();
-                    let enabled = st.core_state().auto_update
-                        && checks_allowed(hidden, autostart, std::env::var_os("CI").is_some(), env_opt_out())
-                        && background
-                        && updates::check_due(&st.cache_path);
-                    if enabled {
+                    if background && handle.state::<State>().core_state().auto_update {
                         let _ = check(&handle, false).await;
                         install_when_idle(&handle);
                     }
@@ -915,89 +851,5 @@ mod tests {
         let back: Settings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(back.brightness, 0.5);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    fn cache_file(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target").join("test-cache").join(format!("goodnight-update-{name}.json"))
-    }
-
-    #[test]
-    fn the_0_2_default_keeps_checks_on_and_other_values_survive() {
-        let old = br#"{"enabled":true,"autoUpdate":true,"brightness":0.8}"#;
-        let s = load_settings(old);
-        assert!(s.auto_update);
-        assert_eq!(s.brightness, 0.8);
-    }
-
-    #[test]
-    fn an_explicit_opt_out_in_old_settings_is_kept() {
-        let old = br#"{"autoUpdate":false,"brightness":0.8}"#;
-        let s = load_settings(old);
-        assert!(!s.auto_update);
-        assert_eq!(s.brightness, 0.8);
-    }
-
-    #[test]
-    fn choices_recorded_by_0_3_are_kept_in_both_directions() {
-        for choice in [false, true] {
-            let mut s = Settings::default();
-            s.auto_update = choice;
-            let mut bytes = serde_json::to_value(&stamped(&s)).unwrap();
-            bytes["settingsVersion"] = serde_json::json!(1);
-            assert_eq!(load_settings(&serde_json::to_vec(&bytes).unwrap()).auto_update, choice);
-        }
-    }
-
-    #[test]
-    fn unreadable_settings_fall_back_to_the_contract_default() {
-        assert!(load_settings(b"not json").auto_update);
-    }
-
-    #[test]
-    fn only_interactive_unopted_out_launches_check_automatically() {
-        assert!(checks_allowed(false, false, false, false));
-        assert!(!checks_allowed(true, false, false, false), "standalone hidden/agent launch");
-        assert!(!checks_allowed(false, false, true, false), "CI");
-        assert!(!checks_allowed(false, false, false, true), "GOODNIGHT_NO_UPDATE_CHECK=1");
-    }
-
-    #[test]
-    fn hidden_login_item_still_checks_but_hidden_agent_does_not() {
-        assert!(checks_allowed(true, true, false, false));
-        assert!(!checks_allowed(true, true, true, false), "CI still wins");
-        assert!(!checks_allowed(true, true, false, true), "env opt-out still wins");
-    }
-
-    #[test]
-    fn a_disabled_check_is_a_distinct_ui_state() {
-        let value = serde_json::json!({ "checksDisabled": true, "version": "0.5.2" });
-        assert_eq!(value["checksDisabled"], true);
-        assert_eq!(value["version"], "0.5.2");
-        assert!(checks_allowed(false, false, false, false), "an enabled check is not disabled");
-    }
-
-    #[test]
-    fn a_check_is_due_only_after_twenty_four_hours() {
-        let path = cache_file("interval");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let at = updates::now();
-        let mut cache = updates::Cache { last_check: Some(at), ..updates::Cache::default() };
-        cache.save(&path).unwrap();
-        assert!(!updates::check_due(&path));
-        cache.last_check = Some(at - updates::DAY - 1.0);
-        cache.save(&path).unwrap();
-        assert!(updates::check_due(&path));
-        std::fs::remove_file(&path).unwrap();
-    }
-
-    #[test]
-    fn a_failed_check_records_its_cause_for_the_settings_sheet() {
-        let path = cache_file("failure");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let cache = updates::Cache { last_check: Some(updates::now()), last_error: Some("feed unavailable".into()), ..updates::Cache::default() };
-        cache.save(&path).unwrap();
-        assert_eq!(updates::Cache::load(&path).last_error.as_deref(), Some("feed unavailable"));
-        std::fs::remove_file(&path).unwrap();
     }
 }

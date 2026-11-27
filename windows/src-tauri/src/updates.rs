@@ -74,12 +74,6 @@ pub fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
-/// Is a background check due, judging only from the cache on disk? Used by the startup
-/// gate, before a check can create a background task or contact the feed.
-pub fn check_due(path: &Path) -> bool {
-    Cache::load(path).check_due(now())
-}
-
 /// Stable `x.y.z` only. Prereleases, build tags and anything unparseable are never newer.
 pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     let mut parts = s.trim().split('.').map(|p| if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) { p.parse().ok() } else { None });
@@ -122,24 +116,32 @@ pub fn append_log(path: &Path, at: f64, line: &str) -> std::io::Result<()> {
     std::fs::write(path, bytes)
 }
 
-/// The updater stages each installer in `<temp>\<app>-<version>-updater-*` and runs it after
-/// this process exits, so that run cannot delete it. The next launch removes the installer and
-/// then the folder if it is empty. Only this app's own names are opened: a folder holding any
-/// other file, or a folder from another app, is left alone. This is the single %TEMP% sweep;
-/// the startup housekeeping module handles only expired files in our own folders.
+/// The updater (tauri-plugin-updater 2.x) stages each installer as
+/// `<temp>\<app>-<version>-updater-<random>\<app>-<version>-installer.exe` and runs it after this
+/// process exits, so that run cannot delete it. The background task calls this a minute after
+/// the next launch: it deletes that installer, then the folder if nothing else is in it, and
+/// returns how many folders it removed. Only this app's own names are opened (the strict
+/// patterns in `goodnight_core::retention`); another app's folder, or a file of ours sharing a
+/// folder with anything else, keeps the folder. An installer still running is locked by
+/// Windows and simply stays until a later launch. This is the app's only %TEMP% sweep (the
+/// uninstaller has its own); the startup housekeeping handles the app's own config folder.
 pub fn remove_staged_installers(temp: &Path, app: &str) -> usize {
     use goodnight_core::retention::{is_updater_installer, is_updater_staging_dir};
     let prefix = format!("{app}-");
     let Ok(entries) = std::fs::read_dir(temp) else { return 0 };
     let mut folders = 0;
     for entry in entries.flatten() {
+        // Names first: %TEMP% can be large, and a name check costs no file system call.
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !entry.path().is_dir() || !name.starts_with(&prefix) || !is_updater_staging_dir(&name) {
+        if !name.starts_with(&prefix) || !is_updater_staging_dir(&name) {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|k| k.is_dir()) {
             continue;
         }
         if let Ok(inner) = std::fs::read_dir(entry.path()) {
             for item in inner.flatten() {
-                let is_file = item.file_type().map(|k| k.is_file()).unwrap_or(false);
+                let is_file = item.file_type().is_ok_and(|k| k.is_file());
                 if is_file && is_updater_installer(&item.file_name().to_string_lossy()) {
                     let _ = std::fs::remove_file(item.path());
                 }

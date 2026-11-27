@@ -1,5 +1,8 @@
 //! Privacy regressions: no analytics/crash-reporting packages or endpoints in shipped sources,
-//! and one anonymous daily update check by default in either platform's configuration.
+//! private settings files on Windows, one anonymous daily update check by default and gated by
+//! its opt-outs, bounded local files whose lifetimes match PRIVACY.md, an uninstaller that cleans
+//! up, and a short README Privacy section whose details live in PRIVACY.md. Update-check
+//! behaviour itself is tested in the shells (`updates.rs`, UpdateKit).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,6 +44,10 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
+fn read(path: &str) -> String {
+    fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
@@ -80,6 +87,50 @@ fn no_telemetry_packages_or_endpoints_in_shipped_sources() {
 }
 
 #[test]
+fn windows_settings_are_written_owner_only() {
+    let main = read("windows/src-tauri/src/main.rs");
+    let body = &main[main.find("fn write_settings(").expect("one private settings writer")..];
+    let body = &body[..body.find("\n}\n").unwrap()];
+    assert!(body.contains("from_mode(0o700)"), "settings folder 0700 on Unix");
+    assert!(body.contains("mode(&mut options, 0o600)"), "settings file created 0600 on Unix");
+    assert!(main.contains("write_settings(&self.path, s)"), "State::save uses the private writer");
+    assert!(!main.contains("std::fs::write(&self.path"), "no world-readable settings write");
+}
+
+#[test]
+fn readme_privacy_is_short_and_details_live_in_privacy_md() {
+    let readme = read("README.md");
+    let start = readme.find("\n## Privacy\n").expect("README has a Privacy section") + "\n## Privacy\n".len();
+    let section = &readme[start..];
+    let section = &section[..section.find("\n## ").unwrap_or(section.len())];
+    let lines: Vec<&str> = section.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(lines.len() <= 6, "README Privacy must stay at most 6 lines, has {}", lines.len());
+    let section = section.to_lowercase();
+    assert!(section.contains("no telemetry"));
+    assert!(section.contains("one anonymous request a day"), "the update check, not 'no network'");
+    assert!(section.contains("[privacy.md](privacy.md)"));
+    assert!(!section.contains("no update check") && !section.contains("no network"));
+
+    let privacy = read("PRIVACY.md");
+    for detail in [
+        "no account, no analytics, no telemetry, no crash reporting",
+        "install ID or machine fingerprint",
+        "GitHub sees your IP address",
+        "goodnight-update-check",
+        "GOODNIGHT_NO_UPDATE_CHECK=1",
+        "~/Library/Preferences/com.libertydesignstudio.goodnight.plist",
+        "`settings.json`",
+        "no prompts, files, credentials or location",
+        "user-only",
+        "0600",
+        "system fonts",
+        "defaults delete com.libertydesignstudio.goodnight",
+    ] {
+        assert!(privacy.contains(detail), "PRIVACY.md must state: {detail}");
+    }
+}
+
+#[test]
 fn default_config_allows_a_daily_anonymous_check_but_not_installation() {
     assert!(Settings::default().auto_update, "daily checks must be on by default");
     let config = Config {
@@ -109,8 +160,8 @@ fn macos_sparkle_defaults_to_daily_checks_and_no_auto_install() {
     );
     assert!(plist.contains("<integer>86400</integer>"));
     assert!(
-        plist.contains("<key>SUSendProfileInfo</key>\n\t<false/>"),
-        "Sparkle must not send the system profile with the check"
+        !plist.contains("<key>SUSendProfileInfo</key>\n\t<true/>"),
+        "Sparkle's system profile is off by default and must stay off"
     );
     let kit = fs::read_to_string(root.join("macos/Sources/UpdateKit/UpdateKit.swift")).unwrap();
     assert!(
@@ -129,8 +180,11 @@ fn macos_sparkle_defaults_to_daily_checks_and_no_auto_install() {
         app.contains("automaticallyChecksForUpdates ?? true"),
         "the Settings toggle must read on when no preference was saved"
     );
-    assert!(app.contains("GOODNIGHT_NO_UPDATE_CHECK"), "env opt-out");
-    assert!(app.contains("env[\"CI\"] != nil"), "CI must disable checks");
+    assert!(
+        app.contains("!UpdatePolicy.backgroundChecksAllowed(environment: ProcessInfo.processInfo.environment)"),
+        "background checks are refused under the env opt-out and CI"
+    );
+    assert!(kit.contains("!set(\"GOODNIGHT_NO_UPDATE_CHECK\") && !set(\"CI\")"), "env opt-out and CI");
     let generated = fs::read_to_string(root.join("macos/Sources/GoodNight/GoodNightEngine.swift")).unwrap();
     assert!(
         generated.contains("autoUpdate: Bool = true"),
@@ -140,84 +194,53 @@ fn macos_sparkle_defaults_to_daily_checks_and_no_auto_install() {
 
 #[test]
 fn windows_periodic_check_is_gated_on_setting_opt_out_and_daily_cache() {
-    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
+    let main = read("windows/src-tauri/src/main.rs");
     let gate = main
-        .find("let enabled = st.core_state().auto_update")
-        .expect("the Windows timer must check the user setting before contacting the feed");
+        .find("if background && handle.state::<State>().core_state().auto_update {")
+        .expect("the Windows timer must check the opt-outs and the user setting before contacting the feed");
     let body = &main[gate..];
     let call = body.find("check(&handle, false).await").expect("timer calls the background check");
     let close = body.find("\n                    }\n").expect("timer gate block closes");
     assert!(call < close, "the background check must sit inside the gated block");
     assert_eq!(main.matches("check(&handle, false).await").count(), 1, "no ungated timer check");
-    assert!(main.contains("vec![\"--autostart\", \"--hidden\"]"), "login launches hidden but marked as a real user");
-    assert!(main.contains("checks_allowed(hidden, autostart, std::env::var_os(\"CI\").is_some(), env_opt_out())"));
-    assert!(main.contains("GOODNIGHT_NO_UPDATE_CHECK"));
-    assert!(main.contains("updates::check_due(&st.cache_path)"), "at most one check per day");
-    assert!(main.contains("const CHECK_TIMEOUT: Duration = Duration::from_secs(4)"), "short timeout");
-    assert!(main.contains("old_default = raw.get(\"autoUpdate\")"));
-    assert!(!main.contains("settings.auto_update = false"), "no forced-off default");
+    assert!(main.contains("let background = updates::background_allowed(|k| std::env::var(k).ok());"));
+    assert!(main.contains("if !manual && !cache.check_due(at) {"), "at most one background check per day");
+    assert!(main.contains("b.timeout(Duration::from_secs(4))"), "short check timeout");
+    let updates = read("windows/src-tauri/src/updates.rs");
+    assert!(updates.contains("!set(\"GOODNIGHT_NO_UPDATE_CHECK\") && !set(\"CI\")"), "env opt-out and CI");
 }
 
 #[test]
 fn docs_and_changelog_describe_the_v1_contract() {
-    let root = root();
-    let docs = fs::read_to_string(root.join("docs/updates.md")).unwrap();
+    let docs = read("docs/updates.md");
     assert!(docs.contains("<!-- update-contract: v1 -->"));
     assert!(docs.contains("GOODNIGHT_NO_UPDATE_CHECK=1"));
-    assert!(
-        docs.contains("no 4-second timeout on macOS"),
-        "the macOS framework timeout limitation must be explicit"
-    );
-    assert!(docs.contains("updateCheckInterval"), "schedule is not a request timeout");
-    let readme = fs::read_to_string(root.join("README.md")).unwrap();
+    assert!(docs.contains("**Check for updates automatically**: on by default"), "the opt-out switch");
+    for false_claim in ["no update check", "never checks for updates", "no network feature"] {
+        assert!(!docs.to_lowercase().contains(false_claim), "docs/updates.md must not claim {false_claim}");
+    }
+    let readme = read("README.md");
     assert!(readme.contains("[docs/updates.md](docs/updates.md)"));
     assert!(readme.contains("on by default"));
-    let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
-    assert!(changelog.contains("[0.5.2]"), "the branch must sit above the published v0.5.0");
-    assert!(changelog.contains("v0.5.0"), "the published release must be named");
+    let changelog = read("CHANGELOG.md");
+    let first = changelog.find("\n## [").expect("a release section");
+    assert!(changelog[first..].starts_with("\n## [0.5.2] - 2026-11-27\n"), "one new entry, at the top");
+    let second = changelog[first + 1..].find("\n## [").map(|k| first + 1 + k).expect("earlier releases");
+    assert!(changelog[second..].starts_with("\n## [0.5.0] - "), "never-tagged versions are folded into 0.5.2");
+    assert_eq!(changelog.matches("## [0.5.2]").count(), 1);
 }
 
 #[test]
-fn a_windows_login_launch_checks_but_a_hidden_agent_launch_does_not() {
-    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
-    let gate = main.find("fn checks_allowed(").expect("the gate");
-    let body = &main[gate..gate + 400];
-    assert!(body.contains("(!hidden || autostart)"));
-    assert!(main.contains("assert!(checks_allowed(true, true, false, false))"));
-    assert!(main.contains("assert!(!checks_allowed(true, false, false, false)"));
-}
-
-#[test]
-fn disabled_check_now_is_not_reported_as_up_to_date() {
-    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
-    assert!(main.contains("checks_disabled: env_opt_out()"));
-    assert!(main.contains("checks_disabled: bool"), "the UI state distinguishes a disabled check");
-    let js = fs::read_to_string(root().join("windows/ui/app.js")).unwrap();
-    assert!(js.contains("Checks disabled"));
-    let disabled = js.find("S.checksDisabled").expect("the disabled branch");
-    let up_to_date = js.find("Up to date").expect("the ordinary no-update result");
-    assert!(disabled < up_to_date, "the disabled branch must precede and guard 'Up to date'");
-    let html = fs::read_to_string(root().join("windows/ui/index.html")).unwrap();
-    assert!(
-        !html.contains("id=\"update-caption\""),
-        "the switch label and docs explain the check; no redundant caption"
-    );
-    assert!(!js.contains("update-caption"), "no orphaned caption renderer");
-}
-
-#[test]
-fn download_links_are_published_and_windows_deviations_are_documented() {
-    let readme = fs::read_to_string(root().join("README.md")).unwrap();
-    assert!(!readme.contains("GoodNight-0.5.2-mac.dmg"), "no unpublished macOS asset link");
-    assert!(!readme.contains("GoodNight-0.5.2-windows-x64-setup.exe"), "no unpublished Windows asset link");
-    assert!(!readme.contains("releases/download/v0.2.0/"), "no stale v0.2.0 asset links");
-    assert!(readme.contains("releases/download/v0.5.0/GoodNight-0.5.0-mac.dmg"));
-    assert!(readme.contains("releases/download/v0.5.0/GoodNight-0.5.0-windows-x64-setup.exe"));
-    assert!(readme.contains("latest published release, v0.5.0"));
-    let docs = fs::read_to_string(root().join("docs/updates.md")).unwrap();
-    assert!(docs.contains("**Install updates automatically**: off by default"), "the merged Windows UI keeps the toggle");
-    assert!(docs.contains("**Remind Me Later**") && docs.contains("**Skip This Version**"), "the merged prompt keeps both choices");
-    assert!(docs.contains("including 0.5.2"), "the platform deviations stay tied to the branch version");
+fn download_links_name_the_release_being_published() {
+    let readme = read("README.md");
+    assert!(readme.contains("releases/latest/download/GoodNight-0.5.2-mac.dmg"));
+    assert!(readme.contains("releases/latest/download/GoodNight-0.5.2-windows-x64-setup.exe"));
+    for stale in ["GoodNight-0.5.0-", "GoodNight-0.2.0-", "releases/download/v0.", "unpublished", "not downloadable"] {
+        assert!(!readme.contains(stale), "README must not carry {stale}");
+    }
+    let docs = read("docs/updates.md");
+    assert!(docs.contains("**Install updates automatically**: off by default"), "the Windows UI keeps the toggle");
+    assert!(docs.contains("**Remind Me Later**") && docs.contains("**Skip This Version**"), "the prompt keeps both choices");
 }
 
 #[test]
@@ -236,22 +259,21 @@ fn updater_feeds_use_the_published_latest_release_urls() {
 
 #[test]
 fn branch_version_is_bumped_in_every_manifest() {
-    for path in [
-        "core/Cargo.toml",
-        "core/Cargo.lock",
-        "windows/src-tauri/Cargo.toml",
-        "windows/src-tauri/Cargo.lock",
-        "windows/src-tauri/tauri.conf.json",
-        "macos/Resources/Info.plist",
+    for (path, needle) in [
+        ("core/Cargo.toml", "\nversion = \"0.5.2\"\n"),
+        ("core/Cargo.lock", "name = \"goodnight-core\"\nversion = \"0.5.2\"\n"),
+        ("windows/src-tauri/Cargo.toml", "\nversion = \"0.5.2\"\n"),
+        ("windows/src-tauri/Cargo.lock", "name = \"goodnight\"\nversion = \"0.5.2\"\n"),
+        ("windows/src-tauri/Cargo.lock", "name = \"goodnight-core\"\nversion = \"0.5.2\"\n"),
+        ("windows/src-tauri/tauri.conf.json", "\"version\": \"0.5.2\""),
+        ("macos/Resources/Info.plist", "<key>CFBundleShortVersionString</key>\n\t<string>0.5.2</string>"),
     ] {
-        let text = fs::read_to_string(root().join(path)).unwrap();
-        assert!(text.contains("0.5.2"), "{path} must carry 0.5.2");
-        assert!(!text.contains("0.4.2"), "{path} must not carry the old branch version");
+        assert!(read(path).contains(needle), "{path} must carry 0.5.2");
     }
-    let plist = fs::read_to_string(root().join("macos/Resources/Info.plist")).unwrap();
+    let plist = read("macos/Resources/Info.plist");
     assert!(
         plist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"),
-        "the macOS build number must stay above published v0.5.0"
+        "the macOS build number must stay above published v0.5.0 (build 5)"
     );
 }
 
@@ -278,28 +300,27 @@ fn readme_privacy_is_a_short_summary_that_links_the_full_disclosure() {
         section.contains("[PRIVACY.md](PRIVACY.md)"),
         "the short form must link the full disclosure instead of carrying it"
     );
-    for detail in ["update-check.json", "settings.json.tmp", "~/Library/Preferences", "GdiIcmGammaRange"] {
+    for detail in ["updates.json", "updates.json.tmp", "~/Library/Preferences", "GdiIcmGammaRange"] {
         assert!(!section.contains(detail), "{detail} is detail for PRIVACY.md, not the README summary");
     }
 }
 
 #[test]
 fn every_local_write_is_inventoried_with_a_lifetime() {
-    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    let privacy = read("PRIVACY.md");
     for required in [
         "Lifetime",
         // settings, both platforms
         "~/Library/Preferences/com.libertydesignstudio.goodnight.plist",
         r"%APPDATA%\com.libertydesignstudio.goodnight\settings.json",
-        // the Windows update-check record and the atomic-write temp files
-        r"%LOCALAPPDATA%\com.libertydesignstudio.goodnight\update-check.json",
-        "settings.json.tmp",
-        "update-check.json.tmp",
+        // the Windows update cache, its atomic-write temp file and the bounded log
+        r"%APPDATA%\com.libertydesignstudio.goodnight\updates.json",
+        "updates.json.tmp",
+        r"%APPDATA%\com.libertydesignstudio.goodnight\updates.log",
         "1 hour",
         "30 days",
-        // the bounded log, install leftovers and the way out
-        "no Windows log file",
         "256 KB",
+        // install leftovers and the way out
         "GdiIcmGammaRange",
         "Start at login",
         "defaults delete com.libertydesignstudio.goodnight",
@@ -307,24 +328,27 @@ fn every_local_write_is_inventoried_with_a_lifetime() {
     ] {
         assert!(privacy.contains(required), "PRIVACY.md must document {required}");
     }
-    let readme = fs::read_to_string(root().join("README.md")).unwrap();
-    assert!(readme.contains("[PRIVACY.md](PRIVACY.md)"), "the README must point at it");
-    let docs = fs::read_to_string(root().join("docs/updates.md")).unwrap();
-    assert!(docs.contains("[PRIVACY.md](../PRIVACY.md)"), "the update docs must point at it too");
+    for never_written in ["update-check.json", "settings.json.tmp", "settingsVersion", "no Windows log file"] {
+        assert!(!privacy.contains(never_written), "PRIVACY.md must not list {never_written}: the app never writes it");
+    }
+    assert!(read("README.md").contains("[PRIVACY.md](PRIVACY.md)"), "the README must point at it");
+    assert!(read("docs/updates.md").contains("[PRIVACY.md](../PRIVACY.md)"), "the update docs must point at it too");
 }
 
 #[test]
 fn retention_bounds_are_pure_documented_and_applied_at_launch() {
     use goodnight_core::retention::{
         disposition, Disposition, CHECK_RECORD_LIFETIME_SECS, SETTINGS_FILE_NAME, TEMP_LIFETIME_SECS,
+        UPDATER_PRODUCT_NAME,
     };
     let now = 1_800_000_000u64;
     assert_eq!(TEMP_LIFETIME_SECS, 3_600, "PRIVACY.md promises one hour");
     assert_eq!(CHECK_RECORD_LIFETIME_SECS, 30 * 24 * 3_600, "PRIVACY.md promises 30 days");
-    assert_eq!(disposition("settings.json.tmp", now - TEMP_LIFETIME_SECS, now), Disposition::Remove);
-    assert_eq!(disposition("update-check.json.tmp", now - 1, now), Disposition::Keep, "a live write");
-    assert_eq!(disposition("update-check.json", now - CHECK_RECORD_LIFETIME_SECS, now), Disposition::Remove);
-    assert_eq!(disposition("update-check.json", now - 3_600, now), Disposition::Keep);
+    assert_eq!(disposition("updates.json.tmp", now - TEMP_LIFETIME_SECS, now), Disposition::Remove);
+    assert_eq!(disposition("updates.json.tmp", now - 1, now), Disposition::Keep, "a live write");
+    assert_eq!(disposition("updates.json", now - CHECK_RECORD_LIFETIME_SECS, now), Disposition::Remove);
+    assert_eq!(disposition("updates.json", now - 24 * 3_600, now), Disposition::Keep, "a daily check keeps it");
+    assert_eq!(disposition("updates.log", 0, now), Disposition::Keep, "the log is bounded by size");
     assert_eq!(
         disposition(SETTINGS_FILE_NAME, now - 10 * CHECK_RECORD_LIFETIME_SECS, now),
         Disposition::Keep,
@@ -332,25 +356,44 @@ fn retention_bounds_are_pure_documented_and_applied_at_launch() {
     );
     assert_eq!(disposition("installer-notes.txt", 0, now), Disposition::Keep, "only this app's files");
 
-    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    // The files the policy names are the ones the Windows shell really writes.
+    let updates = read("windows/src-tauri/src/updates.rs");
+    assert!(updates.contains("path.with_extension(\"json.tmp\")"), "Cache::save writes updates.json.tmp");
+    let config = read("windows/src-tauri/tauri.conf.json");
+    assert!(
+        config.contains(&format!("\"productName\": \"{UPDATER_PRODUCT_NAME}\"")),
+        "the %TEMP% sweep recognises the updater's names only if they use the real product name"
+    );
+
+    let privacy = read("PRIVACY.md");
     assert!(
         privacy.contains("core/src/retention.rs") && privacy.contains("windows/src-tauri/src/housekeeping.rs"),
         "PRIVACY.md must name the code that enforces the bounds"
     );
 
-    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
+    let main = read("windows/src-tauri/src/main.rs");
     assert!(main.contains("mod housekeeping;"), "the shell must own the sweep");
     assert_eq!(main.matches("housekeeping::sweep(").count(), 1, "one sweep, at startup");
-    let sweep = main.find("housekeeping::sweep(").unwrap();
-    let read = main.find("std::fs::read(&path)").expect("settings are read at startup");
-    assert!(sweep < read, "debris is cleared before the settings file is read");
+    let sweep = main.find("housekeeping::sweep(&dir)").expect("the config folder is swept");
+    let cache = main.find("updates::Cache::load(").expect("the update cache is read at startup");
+    let read_settings = main.find("std::fs::read(&path)").expect("settings are read at startup");
+    assert!(sweep < cache && sweep < read_settings, "debris is cleared before anything is read");
+
     assert_eq!(
         main.matches("updates::remove_staged_installers(&std::env::temp_dir(),").count(),
         1,
-        "the updater's abandoned installer in %TEMP% is swept once at startup"
+        "the updater's abandoned installer in %TEMP% is swept once per launch"
+    );
+    let staged = main.find("updates::remove_staged_installers(").unwrap();
+    let delay = main.find("tokio_sleep(Duration::from_secs(60)).await;").expect("the background task waits a minute");
+    let checks = main.find("if background && handle.state::<State>()").unwrap();
+    assert!(delay < staged && staged < checks, "a minute after launch, before the first check");
+    assert!(
+        !read("windows/src-tauri/src/housekeeping.rs").contains("temp_dir"),
+        "one %TEMP% sweep, not two"
     );
 
-    let housekeeping = fs::read_to_string(root().join("windows/src-tauri/src/housekeeping.rs")).unwrap();
+    let housekeeping = read("windows/src-tauri/src/housekeeping.rs");
     assert!(housekeeping.contains("goodnight_core::retention"), "the bounds are the shared policy");
     for forbidden in ["check_due", "record_check", "check_update", "install_update"] {
         assert!(
@@ -362,6 +405,11 @@ fn retention_bounds_are_pure_documented_and_applied_at_launch() {
     let shipping = housekeeping.split("#[cfg(test)]").next().unwrap();
     assert!(!shipping.contains("remove_dir_all"), "the sweeper removes files, never folders");
     assert!(shipping.contains("remove_file"), "and it does remove the expired ones");
+    let staged_fn = &updates[updates.find("pub fn remove_staged_installers(").unwrap()..];
+    let staged_fn = &staged_fn[..staged_fn.find("\n}\n").unwrap()];
+    assert!(!staged_fn.contains("remove_dir_all("), "the %TEMP% sweep never removes a folder with other files");
+    assert!(staged_fn.contains("std::fs::remove_dir(entry.path())"), "only an emptied folder goes");
+    assert!(staged_fn.contains("is_updater_staging_dir") && staged_fn.contains("is_updater_installer"));
 }
 
 #[test]
@@ -411,7 +459,7 @@ fn uninstall_cleanup_is_guarded_against_updates_and_uses_the_current_profile() {
 
 #[test]
 fn privacy_disclosure_is_exact_about_caches_and_cleanup() {
-    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    let privacy = read("PRIVACY.md");
     for false_claim in [
         "at most **three** files",
         "nothing Good Night wrote remains",
@@ -426,7 +474,7 @@ fn privacy_disclosure_is_exact_about_caches_and_cleanup() {
         "An in-app update does not remove them",
         "Good Night-<version>-installer.exe",
         "`remove_staged_installers`",
-        "at the next launch",
+        "a minute after the next launch",
         "256 KB",
     ] {
         assert!(privacy.contains(required), "PRIVACY.md must state {required}");

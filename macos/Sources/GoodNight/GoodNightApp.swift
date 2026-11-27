@@ -131,13 +131,6 @@ final class Updates: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
-    /// CI and the documented environment kill switch suppress background checks without
-    /// changing the saved preference; an explicit Check Now is still allowed.
-    private static var checksDisabled: Bool {
-        let env = ProcessInfo.processInfo.environment
-        return env["GOODNIGHT_NO_UPDATE_CHECK"] == "1" || env["CI"] != nil
-    }
-
     func start() {
         let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: feed, userDriverDelegate: driver)
         controller.updater.userAgentString = UpdatePolicy.userAgent
@@ -148,9 +141,7 @@ final class Updates: ObservableObject {
             controller.updater.observe(\.automaticallyDownloadsUpdates) { [weak self] _, _ in self?.changed() },
         ]
         self.controller = controller
-        // Checks are background work, never startup work: the updater starts after a minute,
-        // unless the environment or CI has turned the background check off.
-        guard !Self.checksDisabled else { return }
+        // Checks are background work, never startup work: the updater starts after a minute.
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.ensureStarted() }
     }
 
@@ -175,7 +166,7 @@ final class Updates: ObservableObject {
     }
 
     var automatic: Bool {
-        get { Self.checksDisabled ? false : (controller?.updater.automaticallyChecksForUpdates ?? true) }
+        get { controller?.updater.automaticallyChecksForUpdates ?? true }
         set { controller?.updater.automaticallyChecksForUpdates = newValue }
     }
 

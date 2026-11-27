@@ -27,9 +27,10 @@
   ${EndIf}
 !macroend
 
-; The update cache and log next to settings.json, and any staging folder left in %TEMP%,
-; go with a real uninstall. The startup sweep in updates.rs removes abandoned staging folders
-; after an in-app update too; neither hook runs during an update.
+; A real uninstall also deletes the update cache and log next to settings.json (normally gone
+; with the folder above already) and every updater staging folder left in %TEMP%. During an
+; in-app update both hooks skip their cleanup; the new version's own sweep (updates.rs,
+; remove_staged_installers) deletes the staged installer a minute after it starts.
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $UpdateMode <> 1
     SetShellVarContext current

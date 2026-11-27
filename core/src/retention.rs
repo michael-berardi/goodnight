@@ -9,31 +9,28 @@
 /// disk after an hour belongs to an interrupted write and is removed at the next launch.
 pub const TEMP_LIFETIME_SECS: u64 = 60 * 60;
 
-/// The last update check is recorded so the app checks at most once a day. Once checks have
-/// stopped for this long (the setting is off, or the app has not been launched), the record is
-/// dead weight and is removed. Losing it only means the next check is due, which an old record
-/// already allows, so the sweep changes no behaviour.
+/// The Windows update cache (`updates.json`) records the last check so the app checks at most
+/// once a day, plus a skipped version and the version last shown. Each check rewrites it. Once no
+/// check has rewritten it for this long (checks were silenced by `GOODNIGHT_NO_UPDATE_CHECK=1` or
+/// `CI`, or the app was not launched), it is dead weight and is removed. Losing it means the next
+/// check is due, which an old record already allows, and a skipped version is offered again.
 pub const CHECK_RECORD_LIFETIME_SECS: u64 = 30 * 24 * 60 * 60;
 
 /// The temporary names the shells write before renaming a file into place. Only these are ever
 /// swept, so the sweeper can never remove a file Good Night did not write.
-pub const TEMP_NAMES: [&str; 3] = ["settings.json.tmp", "update-check.json.tmp", "updates.json.tmp"];
+pub const TEMP_NAMES: [&str; 1] = ["updates.json.tmp"];
 
 /// The Windows settings file. It holds the user's own choices and never expires.
 pub const SETTINGS_FILE_NAME: &str = "settings.json";
 
-/// The Windows update-check record used by earlier privacy builds: last check time plus,
-/// if one failed, its cause. A leftover copy is still swept by the merged shell.
-pub const CHECK_RECORD_FILE_NAME: &str = "update-check.json";
+/// The Windows update cache, next to `settings.json`.
+pub const CHECK_RECORD_FILE_NAME: &str = "updates.json";
 
-/// The current Windows update-cache record: last check time, failure cause, skipped version
-/// and the version last shown. It has the same 30-day bound as the earlier record name.
-pub const UPDATE_CACHE_FILE_NAME: &str = "updates.json";
-
-/// The Windows updater (tauri-plugin-updater 2.x) writes the downloaded installer to
-/// `%TEMP%\<product>-<version>-updater-<random>\<product>-<version>-installer.exe`, keeps that
-/// folder, then exits the app to run the installer. `updates.rs` removes that installer and its
-/// empty folder at the next launch; this module only recognises which names are ours.
+// The Windows updater (tauri-plugin-updater 2.x) writes the downloaded installer to
+// `%TEMP%\<product>-<version>-updater-<random>\<product>-<version>-installer.exe`, keeps that
+// folder, then exits the app to run the installer. `updates::remove_staged_installers` in the
+// Windows shell removes that installer and its then-empty folder after the next launch; this
+// module only says which names are ours.
 
 /// The product name the updater uses in those temporary names (`productName` in tauri.conf.json).
 pub const UPDATER_PRODUCT_NAME: &str = "Good Night";
@@ -79,7 +76,7 @@ pub fn disposition(name: &str, modified_secs: u64, now_secs: u64) -> Disposition
     let past = |lifetime: u64| if age >= lifetime { Disposition::Remove } else { Disposition::Keep };
     if TEMP_NAMES.contains(&name) {
         past(TEMP_LIFETIME_SECS)
-    } else if name == CHECK_RECORD_FILE_NAME || name == UPDATE_CACHE_FILE_NAME {
+    } else if name == CHECK_RECORD_FILE_NAME {
         past(CHECK_RECORD_LIFETIME_SECS)
     } else {
         // Settings last until the user deletes them or uninstalls the app; everything else is
@@ -136,11 +133,11 @@ mod tests {
     }
 
     #[test]
-    fn the_windows_update_cache_has_the_same_bound_as_the_earlier_record() {
-        let name = UPDATE_CACHE_FILE_NAME;
-        assert_eq!(disposition(name, NOW - 24 * 3600, NOW), Disposition::Keep);
-        assert_eq!(disposition(name, NOW - CHECK_RECORD_LIFETIME_SECS, NOW), Disposition::Remove);
-        assert_eq!(disposition("updates.json.tmp", NOW - TEMP_LIFETIME_SECS, NOW), Disposition::Remove);
+    fn the_names_are_the_files_the_windows_shell_writes() {
+        assert_eq!(CHECK_RECORD_FILE_NAME, "updates.json");
+        assert_eq!(TEMP_NAMES, ["updates.json.tmp"], "Cache::save writes updates.json.tmp, then renames");
+        assert_eq!(disposition("updates.log", 0, NOW), Disposition::Keep, "the log is bounded by size, not age");
+        assert_eq!(disposition("update-check.json", 0, NOW), Disposition::Keep, "never written, never swept");
     }
 
     #[test]

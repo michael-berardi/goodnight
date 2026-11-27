@@ -112,12 +112,6 @@ function dial(el, get, set, detents) {
   });
 }
 
-// A disabled check is not an up-to-date result: say so wherever the button is drawn.
-function updateLabel() {
-  if (S && S.checksDisabled) return "Checks disabled";
-  return "Check Now";
-}
-
 // Render
 function render() {
   if (!S) return;
@@ -135,9 +129,7 @@ function render() {
   const ui = globalThis.UpdatesUI;
   $("version").textContent = ui.versionLabel(S);
   $("version").title = S.updateError || "";
-  $("update").textContent = updateLabel();
   $("autoupdate").checked = S.autoUpdate;
-  $("autoupdate").disabled = !!S.checksDisabled;
   $("installauto").checked = ui.autoChecked(S);
   $("installauto").disabled = !S.autoUpdate;
   // The window shows the prompt; the small tray flyout only a one-line banner that opens it.
@@ -203,11 +195,10 @@ function build() {
   $("update-skip").onclick = () => { if (S.update) invoke("skip_update", { version: S.update.version }); };
   $("review-update").onclick = () => invoke("open_main");
   $("update").onclick = () => {
-    if (S && S.checksDisabled) { $("update").textContent = "Checks disabled"; return; }
     $("update").textContent = "Checking…";
     invoke("check_update")
       .then((found) => { $("update").textContent = found ? "Check Now" : "Up to date"; })
-      .catch((err) => { $("update").textContent = updateLabel(); S.error = String(err); render(); });
+      .catch((err) => { $("update").textContent = "Check Now"; S.error = String(err); render(); });
   };
   $("gear").onclick = () => {
     $("sheet").hidden = !$("sheet").hidden;
