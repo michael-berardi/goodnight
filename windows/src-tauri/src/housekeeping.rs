@@ -1,6 +1,6 @@
 //! Local debris housekeeping.
 //!
-//! Good Night writes exactly three files on Windows: `settings.json` in the app config folder,
+//! Good Night's bounded Windows files include `settings.json` in the app config folder,
 //! `update-check.json` in the app cache folder, and a one-line `.tmp` next to either while an
 //! atomic write is in flight. The retention rules live in `goodnight_core::retention` (pure and
 //! tested there); this module is the only code that deletes anything, it deletes files only, and

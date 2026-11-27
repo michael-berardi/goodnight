@@ -69,7 +69,7 @@ Automatic checks are **on by default** in interactive use, including the hidden 
 ## Privacy
 
 - No account, no usage reporting, no ads, no crash reporting, no install ID and no machine fingerprint.
-- The only request is the anonymous daily update check above: no settings, prompts, files, location or identifier leave the machine. See [docs/updates.md](docs/updates.md).
+- The only automatic request is the anonymous daily update check above: no settings, prompts, files, location or identifier leave the machine. See [docs/updates.md](docs/updates.md).
 - Everything Good Night saves stays on this machine: your preferences, a Windows update-check record, and the update engines' own local caches. Nothing is uploaded.
 - Settings are kept until you delete them; the update-check record expires after 30 days and an abandoned temp file after one hour. Every path, lifetime and the one-step delete commands are in [PRIVACY.md](PRIVACY.md).
 
