@@ -1,9 +1,9 @@
 # Privacy
 
 Good Night warms and dims your screen locally. It has no account, no sign-in, no usage
-reporting, no ads, no crash reporting and no install ID or machine fingerprint. Its only network
-feature is the anonymous daily update check described in [docs/updates.md](docs/updates.md): one
-HTTPS GET for the public signed release feed, which sends no settings, warmth schedule, prompts,
+reporting, no ads, no crash reporting and no install ID or machine fingerprint. Its automatic
+network feature is the anonymous daily update check described in [docs/updates.md](docs/updates.md):
+one HTTPS GET for the public signed release feed, which sends no settings, warmth schedule, prompts,
 file contents, usage data or unique identifier. GitHub sees your IP address and ordinary
 transport headers, as it would for any web request.
 
