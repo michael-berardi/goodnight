@@ -41,13 +41,16 @@ unparseable versions are ignored.
 - On Windows, **Check now** reports the newer version in Settings; **Install** downloads and
   verifies the signed release before installation. Installation waits for your explicit choice.
 - **Automatically download and install updates in the future** is an unchecked opt-in in macOS's
-  Sparkle dialog only. The exact platform deviation on Windows (including 0.5.1) is that there is
-  **no Install-updates-automatically toggle**: the **Check for updates automatically** switch
-  controls only the daily feed check, and a found update installs only when you press **Install**.
-  Windows also has **no Remind Me Later and no Skip This Version buttons**; those exist only in
-  Sparkle's macOS dialog. The Windows Settings row offers **Check now**, then **Install** for a
-  found version (or **Checks disabled** when checks are turned off). A background check therefore
-  cannot silently replace the version you are using.
+  Sparkle dialog only. The exact platform deviations (including 0.5.1) are:
+  - **macOS Settings** has **Check for updates automatically** and the installed version, but no
+    **Install updates automatically** switch and no **Check Now** button. Check Now lives in the
+    **Good Night › Check for Updates…** menu command, and auto-install is offered as the unchecked
+    checkbox in Sparkle's prompt.
+  - **Windows Settings** has **Check for updates automatically**, the installed version, **Check now**
+    and **Install**, but no **Install-updates-automatically** toggle and no **Remind Me Later** or
+    **Skip This Version** buttons; those exist only in Sparkle's macOS dialog. A found-update banner
+    says `Good Night <new> is ready · Install`; it does not show the current version or release notes.
+  A background check therefore cannot silently replace the version you are using.
 
 ## Privacy and retention
 
