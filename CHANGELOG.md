@@ -2,6 +2,14 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-11-26
+
+### Fixed
+
+- Resolved the version collision with the published v0.5.0 release: the development branch now carries 0.5.1 in both Cargo manifests, the Windows Tauri config, the macOS Info.plist (build 6), the lockfiles and the branch documentation.
+- README install links now point at the published v0.5.0 DMG and installer; the previous v0.2.0 links described an older release as the latest.
+- Kept the recorded Windows update deviations (no automatic-install toggle, no Remind/Skip buttons) and the macOS per-request timeout limitation in `docs/updates.md`.
+
 ## [0.4.2] - 2026-11-26
 
 ### Changed
@@ -12,7 +20,7 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Fixed
 
-- Patch version bumped in both app manifests and the bundled version strings. README install links now point at the published v0.2.0 assets instead of unpublished 0.4.2 files; the branch version stays above the published release.
+- Patch version bumped in both app manifests and the bundled version strings. README install links briefly pointed at the then-published v0.2.0 assets instead of unpublished 0.4.2 files; they now point at v0.5.0 (see 0.5.1).
 
 ## [0.4.1] - 2026-11-26
 

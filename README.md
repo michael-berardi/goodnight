@@ -17,10 +17,10 @@
 
 ## Install
 
-- **macOS 13 or later, Apple silicon and Intel:** [Download the published DMG](https://github.com/michael-berardi/goodnight/releases/download/v0.2.0/GoodNight-0.2.0-mac.dmg), open it, and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** [Download the published installer](https://github.com/michael-berardi/goodnight/releases/download/v0.2.0/GoodNight-0.2.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+- **macOS 13 or later, Apple silicon and Intel:** [Download the published DMG](https://github.com/michael-berardi/goodnight/releases/download/v0.5.0/GoodNight-0.5.0-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the published installer](https://github.com/michael-berardi/goodnight/releases/download/v0.5.0/GoodNight-0.5.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
 
-These are the assets attached to the latest published release, v0.2.0. This development branch carries later, unpublished changes, so its version is not downloadable yet.
+These are the assets attached to the latest published release, v0.5.0. This development branch is 0.5.1 and carries later, unpublished changes, so its version is not downloadable yet.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 

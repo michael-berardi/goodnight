@@ -170,7 +170,8 @@ fn docs_and_changelog_describe_the_v1_contract() {
     assert!(readme.contains("[docs/updates.md](docs/updates.md)"));
     assert!(readme.contains("on by default"));
     let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
-    assert!(changelog.contains("[0.4.2]"));
+    assert!(changelog.contains("[0.5.1]"), "the branch must sit above the published v0.5.0");
+    assert!(changelog.contains("v0.5.0"), "the published release must be named");
 }
 
 #[test]
@@ -204,24 +205,49 @@ fn disabled_check_now_is_not_reported_as_up_to_date() {
 #[test]
 fn download_links_are_published_and_windows_deviations_are_documented() {
     let readme = fs::read_to_string(root().join("README.md")).unwrap();
-    assert!(!readme.contains("GoodNight-0.4.2-mac.dmg"), "no unpublished macOS asset link");
-    assert!(!readme.contains("GoodNight-0.4.2-windows-x64-setup.exe"), "no unpublished Windows asset link");
-    assert!(readme.contains("releases/download/v0.2.0/GoodNight-0.2.0-mac.dmg"));
-    assert!(readme.contains("releases/download/v0.2.0/GoodNight-0.2.0-windows-x64-setup.exe"));
+    assert!(!readme.contains("GoodNight-0.5.1-mac.dmg"), "no unpublished macOS asset link");
+    assert!(!readme.contains("GoodNight-0.5.1-windows-x64-setup.exe"), "no unpublished Windows asset link");
+    assert!(!readme.contains("releases/download/v0.2.0/"), "no stale v0.2.0 asset links");
+    assert!(readme.contains("releases/download/v0.5.0/GoodNight-0.5.0-mac.dmg"));
+    assert!(readme.contains("releases/download/v0.5.0/GoodNight-0.5.0-windows-x64-setup.exe"));
+    assert!(readme.contains("latest published release, v0.5.0"));
     let docs = fs::read_to_string(root().join("docs/updates.md")).unwrap();
     assert!(docs.contains("**no Install-updates-automatically toggle**"));
     assert!(docs.contains("**no Remind Me Later and no Skip This Version buttons**"));
+    assert!(docs.contains("including 0.5.1"), "the Windows deviation stays tied to the branch version");
 }
 
 #[test]
-fn patch_version_is_bumped_in_every_manifest() {
+fn updater_feeds_use_the_published_latest_release_urls() {
+    let config = fs::read_to_string(root().join("windows/src-tauri/tauri.conf.json")).unwrap();
+    assert!(
+        config.contains("https://github.com/michael-berardi/goodnight/releases/latest/download/latest.json"),
+        "the Windows plugin must read the published feed"
+    );
+    let plist = fs::read_to_string(root().join("macos/Resources/Info.plist")).unwrap();
+    assert!(
+        plist.contains("https://github.com/michael-berardi/goodnight/releases/latest/download/appcast.xml"),
+        "Sparkle must read the published feed"
+    );
+}
+
+#[test]
+fn branch_version_is_bumped_in_every_manifest() {
     for path in [
         "core/Cargo.toml",
+        "core/Cargo.lock",
         "windows/src-tauri/Cargo.toml",
+        "windows/src-tauri/Cargo.lock",
         "windows/src-tauri/tauri.conf.json",
         "macos/Resources/Info.plist",
     ] {
         let text = fs::read_to_string(root().join(path)).unwrap();
-        assert!(text.contains("0.4.2"), "{path} must carry 0.4.2");
+        assert!(text.contains("0.5.1"), "{path} must carry 0.5.1");
+        assert!(!text.contains("0.4.2"), "{path} must not carry the old branch version");
     }
+    let plist = fs::read_to_string(root().join("macos/Resources/Info.plist")).unwrap();
+    assert!(
+        plist.contains("<key>CFBundleVersion</key>\n\t<string>6</string>"),
+        "the macOS build number must stay above published v0.5.0"
+    );
 }
