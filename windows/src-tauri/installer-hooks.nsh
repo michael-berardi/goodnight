@@ -5,9 +5,31 @@
   WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM" "GdiIcmGammaRange" 256
 !macroend
 
-; Uninstalling removes the update cache and log next to settings.json, and any installer an
-; update left in the temp folder. Settings go only with "Delete the application data".
-; Updates run this uninstaller too; they keep everything.
+; Tauri's NSIS template forwards the updater's `/UPDATE` flag to the uninstaller as $UpdateMode.
+; A real uninstall removes only what this installer wrote and the uninstalling profile's data;
+; an in-app update must preserve settings, cache and gamma value, because the user and the app
+; come straight back.
+!macro NSIS_HOOK_PREUNINSTALL
+  ${If} $UpdateMode <> 1
+    SetRegView 64
+    ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM" "GdiIcmGammaRange"
+    IntCmp $0 256 0 goodnight_gamma_kept goodnight_gamma_kept
+    DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM" "GdiIcmGammaRange"
+    goodnight_gamma_kept:
+
+    ; This installer is perMachine, so its shell context normally points at all users.
+    ; Profile data belongs to the account running the uninstaller, not to that shared folder.
+    SetShellVarContext current
+    RMDir /r "$APPDATA\com.libertydesignstudio.goodnight"
+    RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight"
+    ; Restore the installer's context for Tauri's own shortcut and registry cleanup.
+    !insertmacro SetContext
+  ${EndIf}
+!macroend
+
+; The update cache and log next to settings.json, and any staging folder left in %TEMP%,
+; go with a real uninstall. The startup sweep in updates.rs removes abandoned staging folders
+; after an in-app update too; neither hook runs during an update.
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $UpdateMode <> 1
     SetShellVarContext current

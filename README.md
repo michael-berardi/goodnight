@@ -17,8 +17,10 @@
 
 ## Install
 
-- **macOS 13 or later, Apple silicon and Intel:** [Download the DMG](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.5.0-mac.dmg), open it, and drag Good Night to Applications.
-- **Windows 10 and 11, x64 (preview):** [Download the installer](https://github.com/michael-berardi/goodnight/releases/latest/download/GoodNight-0.5.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+- **macOS 13 or later, Apple silicon and Intel:** [Download the published DMG](https://github.com/michael-berardi/goodnight/releases/download/v0.5.0/GoodNight-0.5.0-mac.dmg), open it, and drag Good Night to Applications.
+- **Windows 10 and 11, x64 (preview):** [Download the published installer](https://github.com/michael-berardi/goodnight/releases/download/v0.5.0/GoodNight-0.5.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
+
+These are the assets attached to the latest published release, v0.5.0. This development branch is 0.5.2 and carries later, unpublished changes, so its version is not downloadable yet.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
@@ -62,13 +64,13 @@ The Windows installer sets `GdiIcmGammaRange` to 256 under `HKLM\SOFTWARE\Micros
 
 ## Updates
 
-Good Night checks for a newer stable release once a day in the background and offers it with its release notes: **Install Update**, **Remind Me Later** or **Skip This Version**. Installing automatically is an opt-in, off by default. **Settings › Updates** has both switches and **Check Now**. Details: [docs/updates.md](docs/updates.md).
+Background checks are on by default: Good Night checks for a newer stable release once a day, anonymously, and offers it with its release notes: **Install Update**, **Remind Me Later** or **Skip This Version**. Installing automatically is an opt-in, off by default. Turn checks off in **Settings › Updates**, which has both switches and **Check Now**, or with `GOODNIGHT_NO_UPDATE_CHECK=1`. Details: [docs/updates.md](docs/updates.md).
 
 ## Privacy
 
 - No account, no telemetry, no usage data.
 - One anonymous request a day to the signed release feed, with no identifier or version.
-- Settings and update state stay on this device.
+- Settings and update state stay on this device; old temporary files and check records are swept automatically.
 - Details: [PRIVACY.md](PRIVACY.md).
 
 ## Build from source

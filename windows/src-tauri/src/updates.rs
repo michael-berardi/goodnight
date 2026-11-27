@@ -74,6 +74,12 @@ pub fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
+/// Is a background check due, judging only from the cache on disk? Used by the startup
+/// gate, before a check can create a background task or contact the feed.
+pub fn check_due(path: &Path) -> bool {
+    Cache::load(path).check_due(now())
+}
+
 /// Stable `x.y.z` only. Prereleases, build tags and anything unparseable are never newer.
 pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     let mut parts = s.trim().split('.').map(|p| if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) { p.parse().ok() } else { None });
@@ -117,18 +123,34 @@ pub fn append_log(path: &Path, at: f64, line: &str) -> std::io::Result<()> {
 }
 
 /// The updater stages each installer in `<temp>\<app>-<version>-updater-*` and runs it after
-/// this process exits, so that run cannot delete it. The next run removes every such folder.
+/// this process exits, so that run cannot delete it. The next launch removes the installer and
+/// then the folder if it is empty. Only this app's own names are opened: a folder holding any
+/// other file, or a folder from another app, is left alone. This is the single %TEMP% sweep;
+/// the startup housekeeping module handles only expired files in our own folders.
 pub fn remove_staged_installers(temp: &Path, app: &str) -> usize {
+    use goodnight_core::retention::{is_updater_installer, is_updater_staging_dir};
     let prefix = format!("{app}-");
     let Ok(entries) = std::fs::read_dir(temp) else { return 0 };
-    entries
-        .flatten()
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            name.starts_with(&prefix) && name.contains("-updater-") && e.path().is_dir()
-        })
-        .filter(|e| std::fs::remove_dir_all(e.path()).is_ok())
-        .count()
+    let mut folders = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !entry.path().is_dir() || !name.starts_with(&prefix) || !is_updater_staging_dir(&name) {
+            continue;
+        }
+        if let Ok(inner) = std::fs::read_dir(entry.path()) {
+            for item in inner.flatten() {
+                let is_file = item.file_type().map(|k| k.is_file()).unwrap_or(false);
+                if is_file && is_updater_installer(&item.file_name().to_string_lossy()) {
+                    let _ = std::fs::remove_file(item.path());
+                }
+            }
+        }
+        // remove_dir (not remove_dir_all) refuses a folder that still holds anything else.
+        if std::fs::remove_dir(entry.path()).is_ok() {
+            folders += 1;
+        }
+    }
+    folders
 }
 
 /// Turning update checks off removes every update file; the uninstaller does the same.
@@ -269,6 +291,32 @@ mod tests {
         assert!(!staged.exists());
         assert!(temp.join("Other App-1.0.0-updater-Zz").exists());
         assert!(temp.join("Good Night-notes.txt").exists());
+        assert_eq!(remove_staged_installers(&temp, "Good Night"), 0);
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn abandoned_installers_leave_foreign_files_and_folders_alone() {
+        let temp = scratch("staged-strict");
+        let ours = temp.join("Good Night-0.5.2-updater-Ab12cd");
+        std::fs::create_dir_all(&ours).unwrap();
+        std::fs::write(ours.join("Good Night-0.5.2-installer.exe"), b"MZ").unwrap();
+        let shared = temp.join("Good Night-0.5.1-updater-Zz9");
+        std::fs::create_dir_all(&shared).unwrap();
+        let old_installer = shared.join("Good Night-0.5.1-installer.exe");
+        std::fs::write(&old_installer, b"MZ").unwrap();
+        let stranger = shared.join("keep.txt");
+        std::fs::write(&stranger, b"not ours").unwrap();
+        let other = temp.join("Other App-1.0.0-updater-Zz");
+        std::fs::create_dir_all(&other).unwrap();
+        let other_installer = other.join("Other App-1.0.0-installer.exe");
+        std::fs::write(&other_installer, b"MZ").unwrap();
+
+        assert_eq!(remove_staged_installers(&temp, "Good Night"), 1);
+        assert!(!ours.exists(), "an emptied staging folder goes too");
+        assert!(stranger.exists() && shared.exists(), "a folder holding anything else is kept");
+        assert!(!old_installer.exists(), "our installer in that folder is still removed");
+        assert!(other_installer.exists(), "another app's updater files are never touched");
         assert_eq!(remove_staged_installers(&temp, "Good Night"), 0);
         let _ = std::fs::remove_dir_all(&temp);
     }

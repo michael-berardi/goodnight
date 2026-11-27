@@ -7,7 +7,7 @@ is on by default; installing automatically is an opt-in and off by default.
 ## The prompt
 
 When a check finds a newer release, Good Night shows "Good Night 0.6.0 is available — you have
-0.5.0." with the release notes and three choices:
+0.5.2." with the release notes and three choices:
 
 - **Install Update** downloads, verifies and installs it, then starts the new version.
 - **Remind Me Later** hides it until the next daily check.
@@ -37,7 +37,16 @@ One anonymous request to the signed feed on GitHub Releases (`appcast.xml` on ma
 `latest.json` on Windows), at most once a day, in the background, starting a minute after
 launch. The feed lists only the latest stable release, and the app also ignores any version
 that is not a plain `x.y.z` newer than the running one. `GOODNIGHT_NO_UPDATE_CHECK=1` or `CI`
-turns background checks off. What is sent and stored: [PRIVACY.md](../PRIVACY.md).
+turns background checks off, as does a standalone hidden Windows launch; the `--autostart
+--hidden` login item still checks. The Windows request has a 4-second timeout; Sparkle performs
+the macOS appcast GET in its own loader and exposes only `updateCheckInterval` (a schedule, not
+a request timeout), so there is no 4-second timeout on macOS. What is sent and stored:
+[PRIVACY.md](../PRIVACY.md).
+
+The platform deviations (including 0.5.2) are limited to presentation and this timeout: the
+prompt above is Sparkle's standard dialog on macOS and the in-window prompt on Windows, both
+with the same three choices. macOS Settings has the check toggle, auto-install toggle, version
+and **Check Now**; Windows Settings has the same controls on separate rows.
 
 ## Automatic installs
 

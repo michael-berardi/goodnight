@@ -5,6 +5,7 @@
 //! mean, which warmth to show now, when the sun rises, and the colour pipeline that turns a
 //! level and a brightness into a ramp.
 
+pub mod retention;
 pub mod sun;
 pub mod warmth;
 
@@ -34,7 +35,8 @@ pub struct Settings {
     /// Warmth by night when following the sun.
     pub night_level: f64,
     pub brightness: f64,
-    /// Check for a newer release once a day (on by default).
+    /// On by default: interactive shells check the signed public feed at most daily.
+    /// The opt-out is ALSO available through GOODNIGHT_NO_UPDATE_CHECK=1 without changing this value.
     pub auto_update: bool,
     /// Download and install a newer release without asking (off by default).
     pub install_updates_automatically: bool,
