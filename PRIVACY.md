@@ -31,12 +31,14 @@ and anything about your prompts, files, clipboard, keystrokes, screenshots or lo
 Sun uses your time zone's reference city, not your location, and no location permission is
 requested.
 
-The update download itself is a copy of the public release. On Windows the updater runs the
-installer from its temporary folder. On macOS Sparkle saves downloaded archives under
+The update download itself is a copy of the public release. On Windows the updater saves the
+installer as `%TEMP%\Good Night-<version>-updater-<random>\Good Night-<version>-installer.exe`
+and runs it from there; at the next launch Good Night deletes that installer once it is **1 hour**
+old, then the folder if nothing else is in it. On macOS Sparkle saves downloaded archives under
 `~/Library/Caches/com.libertydesignstudio.goodnight/org.sparkle-project.Sparkle/PersistentDownloads/`,
 not in the system temporary folder; Sparkle prunes items there once they are **10 days** old, and
 macOS may clear caches sooner. Both are ordinary public artifacts holding none of your data, and
-neither is a file Good Night writes or a place your settings are stored.
+neither holds your settings.
 
 The interface uses bundled assets and system fonts, with no third-party fonts, scripts or web
 services. GitHub is the only third party contacted, and only for update checks and update
@@ -72,6 +74,7 @@ macOS cache and other Windows accounts need the separate steps above.
 - No file grows without a bound: the update-check record is a fixed-size timestamp plus one
   short cause string, and the settings file has a fixed set of numeric and boolean fields.
 - The automatic sweep is the code in `windows/src-tauri/src/housekeeping.rs`; the lifetimes it
-  applies are `TEMP_LIFETIME_SECS` (1 hour) and `CHECK_RECORD_LIFETIME_SECS` (30 days) in
+  applies are `TEMP_LIFETIME_SECS` (1 hour), `UPDATER_LEFTOVER_LIFETIME_SECS` (1 hour) and
+  `CHECK_RECORD_LIFETIME_SECS` (30 days) in
   `core/src/retention.rs`. The tests in `core/tests/privacy.rs` fail if this page, those
   constants and the sweep drift apart.

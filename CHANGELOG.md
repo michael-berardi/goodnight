@@ -11,6 +11,7 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ### Added
 
 - Automatic retention bounds, so no local data is left behind as debris: an abandoned atomic-write `.tmp` file is swept at the next launch once it is an hour old, and the Windows update-check record is swept once it is 30 days old. Settings stay until you delete them or uninstall. The policy is pure and lives in `core/src/retention.rs`; the sweep lives in `windows/src-tauri/src/housekeeping.rs` and runs at startup, before anything reads those files.
+- The Windows updater's installer, which it leaves in `%TEMP%` when it exits to run it, is deleted at the next launch once it is an hour old, and its folder too if nothing else is in it. Only `Good Night-<version>-updater-<random>` folders are opened.
 - Retention and privacy regression tests: the policy and the sweeper are covered by unit tests, and `core/tests/privacy.rs` fails if PRIVACY.md, the lifetimes and the sweep wiring drift apart or if the README section grows back into the full disclosure.
 - The Windows uninstaller now clears the install leftovers: the machine-wide `GdiIcmGammaRange` value, but only while it still holds the value the installer wrote, and the uninstalling profile's settings and cache folders.
 

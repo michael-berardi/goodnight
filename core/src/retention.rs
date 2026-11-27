@@ -25,6 +25,40 @@ pub const SETTINGS_FILE_NAME: &str = "settings.json";
 /// The Windows update-check record: last check time plus, if one failed, its cause.
 pub const CHECK_RECORD_FILE_NAME: &str = "update-check.json";
 
+/// The Windows updater (tauri-plugin-updater 2.x) writes the downloaded installer to
+/// `%TEMP%\<product>-<version>-updater-<random>\<product>-<version>-installer.exe`, keeps that
+/// folder, then exits the app to run the installer, so nothing removes it afterwards. The next
+/// launch removes the installer once it is this old, then the folder if it is empty.
+pub const UPDATER_LEFTOVER_LIFETIME_SECS: u64 = TEMP_LIFETIME_SECS;
+
+/// The product name the updater uses in those temporary names (`productName` in tauri.conf.json).
+pub const UPDATER_PRODUCT_NAME: &str = "Good Night";
+
+/// Is `dir_name` an updater staging folder this app created (`Good Night-<version>-updater-<random>`)?
+pub fn is_updater_staging_dir(dir_name: &str) -> bool {
+    let Some(rest) = dir_name.strip_prefix(UPDATER_PRODUCT_NAME).and_then(|r| r.strip_prefix('-')) else {
+        return false;
+    };
+    let Some((version, random)) = rest.split_once("-updater-") else { return false };
+    is_version(version) && !random.is_empty() && random.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Is `file_name` the installer the updater wrote into such a folder (`Good Night-<version>-installer.exe`)?
+pub fn is_updater_installer(file_name: &str) -> bool {
+    file_name
+        .strip_prefix(UPDATER_PRODUCT_NAME)
+        .and_then(|r| r.strip_prefix('-'))
+        .and_then(|r| r.strip_suffix("-installer.exe"))
+        .is_some_and(is_version)
+}
+
+fn is_version(v: &str) -> bool {
+    !v.is_empty()
+        && v.split('.').count() >= 2
+        && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
+        && v.split('.').next().is_some_and(|major| major.chars().all(|c| c.is_ascii_digit()) && !major.is_empty())
+}
+
 /// What a file on disk deserves the next time the app starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Disposition {
@@ -105,8 +139,28 @@ mod tests {
     }
 
     #[test]
+    fn only_this_apps_updater_leftovers_are_recognised() {
+        assert!(is_updater_staging_dir("Good Night-0.5.2-updater-Ab12cd"));
+        assert!(is_updater_installer("Good Night-0.5.2-installer.exe"));
+        for other in [
+            "Good Night-updater-Ab12cd",
+            "Good Night-0.5.2-updater-",
+            "Good Night-x.y-updater-Ab12cd",
+            "Other App-0.5.2-updater-Ab12cd",
+            "Good Nightly-0.5.2-updater-Ab12cd",
+            "Good Night-0.5.2-updater-../x",
+        ] {
+            assert!(!is_updater_staging_dir(other), "{other} is not ours");
+        }
+        for other in ["Good Night-0.5.2-installer.msi", "notes.exe", "Good Night-installer.exe"] {
+            assert!(!is_updater_installer(other), "{other} is not ours");
+        }
+    }
+
+    #[test]
     fn the_documented_lifetimes_are_the_ones_enforced() {
         assert_eq!(TEMP_LIFETIME_SECS, 3_600, "PRIVACY.md promises one hour");
         assert_eq!(CHECK_RECORD_LIFETIME_SECS, 2_592_000, "PRIVACY.md promises 30 days");
+        assert_eq!(UPDATER_LEFTOVER_LIFETIME_SECS, 3_600, "PRIVACY.md promises one hour");
     }
 }

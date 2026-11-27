@@ -340,6 +340,11 @@ fn retention_bounds_are_pure_documented_and_applied_at_launch() {
     let sweep = main.find("housekeeping::sweep(").unwrap();
     let read = main.find("std::fs::read(&path)").expect("settings are read at startup");
     assert!(sweep < read, "debris is cleared before the settings file is read");
+    assert_eq!(
+        main.matches("housekeeping::sweep_updater_leftovers(&std::env::temp_dir())").count(),
+        1,
+        "the updater's abandoned installer in %TEMP% is swept once at startup"
+    );
 
     let housekeeping = fs::read_to_string(root().join("windows/src-tauri/src/housekeeping.rs")).unwrap();
     assert!(housekeeping.contains("goodnight_core::retention"), "the bounds are the shared policy");
@@ -415,6 +420,8 @@ fn privacy_disclosure_is_exact_about_caches_and_cleanup() {
         "10 days",
         "WebView2",
         "An in-app update does not remove them",
+        "Good Night-<version>-installer.exe",
+        "`UPDATER_LEFTOVER_LIFETIME_SECS` (1 hour)",
     ] {
         assert!(privacy.contains(required), "PRIVACY.md must state {required}");
     }

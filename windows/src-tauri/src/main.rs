@@ -597,6 +597,9 @@ fn main() {
             for dir in [path.parent(), cache_path.parent()].into_iter().flatten() {
                 housekeeping::sweep(dir);
             }
+            // The updater leaves its installer in %TEMP% when it exits to run it; remove it an
+            // hour later (PRIVACY.md).
+            housekeeping::sweep_updater_leftovers(&std::env::temp_dir());
             let settings: Settings = std::fs::read(&path).ok().map(|b| load_settings(&b)).unwrap_or_default();
             let (time_zone, utc_offset_seconds) = system_zone();
             let core = Runtime::<GoodNight>::start(Config { settings, time_zone, utc_offset_seconds, fixed_now: None });

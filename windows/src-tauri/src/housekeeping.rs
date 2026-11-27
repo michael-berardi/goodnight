@@ -43,6 +43,45 @@ pub fn sweep_at(dir: &Path, now: u64) -> Vec<PathBuf> {
     removed
 }
 
+/// Remove the Windows updater's abandoned installers from the system temporary folder, as of
+/// `now`. Only `Good Night-<version>-updater-<random>` folders are opened; inside them only the
+/// `Good Night-<version>-installer.exe` file is deleted once it is past its lifetime, and the
+/// folder is then removed only if it is empty (`remove_dir` refuses anything else).
+pub fn sweep_updater_leftovers_at(temp: &Path, now: u64) -> Vec<PathBuf> {
+    let mut removed = Vec::new();
+    let Ok(entries) = std::fs::read_dir(temp) else { return removed };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else { continue };
+        if !kind.is_dir() || !retention::is_updater_staging_dir(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
+        let folder = entry.path();
+        let Ok(inner) = std::fs::read_dir(&folder) else { continue };
+        for item in inner.flatten() {
+            let path = item.path();
+            let is_file = item.file_type().map(|k| k.is_file()).unwrap_or(false);
+            if !is_file || !retention::is_updater_installer(&item.file_name().to_string_lossy()) {
+                continue;
+            }
+            let Some(modified) = modified_secs(&path) else { continue };
+            if now.saturating_sub(modified) >= retention::UPDATER_LEFTOVER_LIFETIME_SECS
+                && std::fs::remove_file(&path).is_ok()
+            {
+                removed.push(path);
+            }
+        }
+        if std::fs::remove_dir(&folder).is_ok() {
+            removed.push(folder);
+        }
+    }
+    removed
+}
+
+/// Sweep the updater leftovers against the current clock; called once at startup.
+pub fn sweep_updater_leftovers(temp: &Path) -> Vec<PathBuf> {
+    sweep_updater_leftovers_at(temp, now_secs())
+}
+
 /// Sweep one folder against the current clock. Called once at startup, off the settings and
 /// check paths, so a crash that left a file behind cannot leave it behind for good.
 pub fn sweep(dir: &Path) -> Vec<PathBuf> {
@@ -124,6 +163,35 @@ mod tests {
             assert!(path.exists(), "{} must survive", path.display());
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_old_updater_installer_and_its_empty_folder_are_removed() {
+        let temp = scratch("updater");
+        let ours = temp.join("Good Night-0.5.2-updater-Ab12cd");
+        std::fs::create_dir_all(&ours).unwrap();
+        let installer = write(&ours, "Good Night-0.5.2-installer.exe", "MZ");
+        let shared = temp.join("Good Night-0.5.1-updater-Zz9");
+        std::fs::create_dir_all(&shared).unwrap();
+        let old_installer = write(&shared, "Good Night-0.5.1-installer.exe", "MZ");
+        let stranger = write(&shared, "keep.txt", "not ours");
+        let other_app = temp.join("Other-1.0.0-updater-Ab12cd");
+        std::fs::create_dir_all(&other_app).unwrap();
+        let other_installer = write(&other_app, "Other-1.0.0-installer.exe", "MZ");
+
+        assert!(sweep_updater_leftovers_at(&temp, now_secs()).is_empty(), "a fresh installer may still be running");
+        assert!(installer.exists());
+
+        let later = now_secs() + retention::UPDATER_LEFTOVER_LIFETIME_SECS + 1;
+        let mut removed = sweep_updater_leftovers_at(&temp, later);
+        removed.sort();
+        let mut expected = vec![installer.clone(), ours.clone(), old_installer.clone()];
+        expected.sort();
+        assert_eq!(removed, expected);
+        assert!(!ours.exists(), "the emptied folder goes too");
+        assert!(stranger.exists() && shared.exists(), "a folder holding anything else is kept");
+        assert!(other_installer.exists(), "another app's updater files are never touched");
+        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
