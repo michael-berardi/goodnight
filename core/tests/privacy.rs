@@ -367,3 +367,61 @@ fn uninstalling_leaves_no_install_leftovers() {
     assert!(nsh.contains(r#"RMDir /r "$APPDATA\com.libertydesignstudio.goodnight""#));
     assert!(nsh.contains(r#"RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight""#));
 }
+
+/// Tauri's NSIS template sets `$UpdateMode` from the updater's `/UPDATE` flag in `un.onInit`.
+/// Only a real uninstall may reach any cleanup in our hook, and profile paths must be current-user
+/// paths even though the installer itself is perMachine.
+#[test]
+fn uninstall_cleanup_is_guarded_against_updates_and_uses_the_current_profile() {
+    let nsh = fs::read_to_string(root().join("windows/src-tauri/installer-hooks.nsh")).unwrap();
+    let macro_start = nsh.find("!macro NSIS_HOOK_PREUNINSTALL").expect("the pre-uninstall hook");
+    let after_macro = &nsh[macro_start..];
+    let macro_end = after_macro.find("!macroend").expect("the hook ends");
+    let body = &after_macro[..macro_end];
+
+    let guard = body.find("${If} $UpdateMode <> 1").expect("skip cleanup during an in-app update");
+    let close = body.rfind("${EndIf}").expect("the guard must close");
+    let first_cleanup = body.find("DeleteRegValue").expect("registry cleanup");
+    let last_cleanup = body.rfind("RMDir /r").expect("folder cleanup");
+    assert!(guard < first_cleanup && guard < last_cleanup, "guard must precede every deletion");
+    assert!(close > first_cleanup && close > last_cleanup, "guard must contain every deletion");
+    assert!(!body[..guard].contains("DeleteRegValue") && !body[..guard].contains("RMDir /r"));
+    assert!(!body[close..].contains("DeleteRegValue") && !body[close..].contains("RMDir /r"));
+
+    let per_user = body.find("SetShellVarContext current").expect("delete the current user's profile");
+    let first_folder = body.find(r#"RMDir /r "$APPDATA\com.libertydesignstudio.goodnight""#).unwrap();
+    let last_folder = body.rfind(r#"RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight""#).unwrap();
+    assert!(per_user > guard && per_user < first_folder, "switch context before deleting folders");
+    assert!(!body[..per_user].contains("RMDir /r"));
+    assert!(!body.contains("SetShellVarContext all"), "never delete the all-users folder");
+    assert!(
+        body[last_folder..].contains("!insertmacro SetContext"),
+        "restore the perMachine context for the rest of the uninstall"
+    );
+}
+
+#[test]
+fn privacy_disclosure_is_exact_about_caches_and_cleanup() {
+    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    for false_claim in [
+        "at most **three** files",
+        "nothing Good Night wrote remains",
+        "Sparkle downloads to the system temporary folder",
+    ] {
+        assert!(!privacy.contains(false_claim), "PRIVACY.md must not claim {false_claim}");
+    }
+    for required in [
+        "~/Library/Caches/com.libertydesignstudio.goodnight/org.sparkle-project.Sparkle/PersistentDownloads/",
+        "10 days",
+        "WebView2",
+        "An in-app update does not remove them",
+    ] {
+        assert!(privacy.contains(required), "PRIVACY.md must state {required}");
+    }
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let start = readme.find("\n## Privacy\n").expect("the Privacy section");
+    let body = &readme[start + 1..];
+    let section = &body[..body.find("\n## ").expect("the next section")];
+    let lines: Vec<&str> = section.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!((4..=7).contains(&lines.len()), "README Privacy stays 3-6 lines");
+}
