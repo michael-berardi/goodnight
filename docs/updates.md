@@ -57,7 +57,7 @@ unparseable versions are ignored.
 
 ## Privacy and retention
 
-The update check is the app's only network feature. The local cache holds only the last check
+The update check is the app's only automatic network feature; accepted updates download from the same host. The local cache holds only the last check
 time and, if a check failed, its cause. That record is swept at the next launch once it is 30 days
 old, so it cannot linger after checks stop. Delete it with the app cache folder on Windows; on
 macOS Sparkle's schedule is part of the app's normal preferences and can be cleared with
