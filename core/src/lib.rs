@@ -5,6 +5,7 @@
 //! mean, which warmth to show now, when the sun rises, and the colour pipeline that turns a
 //! level and a brightness into a ramp.
 
+pub mod retention;
 pub mod sun;
 pub mod warmth;
 

@@ -41,7 +41,7 @@ unparseable versions are ignored.
 - On Windows, **Check now** reports the newer version in Settings; **Install** downloads and
   verifies the signed release before installation. Installation waits for your explicit choice.
 - **Automatically download and install updates in the future** is an unchecked opt-in in macOS's
-  Sparkle dialog only. The exact platform deviations (including 0.5.1) are:
+  Sparkle dialog only. The exact platform deviations (including 0.5.2) are:
   - **macOS Settings** has **Check for updates automatically** and the installed version, but no
     **Install updates automatically** switch and no **Check Now** button. Check Now lives in the
     **Good Night › Check for Updates…** menu command, and auto-install is offered as the unchecked
@@ -58,8 +58,9 @@ unparseable versions are ignored.
 ## Privacy and retention
 
 The update check is the app's only network feature. The local cache holds only the last check
-time and, if a check failed, its cause. Delete it with the app cache folder on Windows; on macOS
-Sparkle's schedule is part of the app's normal preferences and can be cleared with
-`defaults delete com.libertydesignstudio.goodnight`. See the README's **Privacy** section for the
-full list of what is stored and how to remove it. The README keeps this detailed disclosure rather
-than the contract's short form.
+time and, if a check failed, its cause. That record is swept at the next launch once it is 30 days
+old, so it cannot linger after checks stop. Delete it with the app cache folder on Windows; on
+macOS Sparkle's schedule is part of the app's normal preferences and can be cleared with
+`defaults delete com.libertydesignstudio.goodnight`. Every file Good Night writes, its lifetime
+and the one-step delete commands are in [PRIVACY.md](../PRIVACY.md), which the README links in its
+short **Privacy** section.

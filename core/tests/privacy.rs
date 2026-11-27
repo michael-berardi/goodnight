@@ -170,7 +170,7 @@ fn docs_and_changelog_describe_the_v1_contract() {
     assert!(readme.contains("[docs/updates.md](docs/updates.md)"));
     assert!(readme.contains("on by default"));
     let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
-    assert!(changelog.contains("[0.5.1]"), "the branch must sit above the published v0.5.0");
+    assert!(changelog.contains("[0.5.2]"), "the branch must sit above the published v0.5.0");
     assert!(changelog.contains("v0.5.0"), "the published release must be named");
 }
 
@@ -205,8 +205,8 @@ fn disabled_check_now_is_not_reported_as_up_to_date() {
 #[test]
 fn download_links_are_published_and_windows_deviations_are_documented() {
     let readme = fs::read_to_string(root().join("README.md")).unwrap();
-    assert!(!readme.contains("GoodNight-0.5.1-mac.dmg"), "no unpublished macOS asset link");
-    assert!(!readme.contains("GoodNight-0.5.1-windows-x64-setup.exe"), "no unpublished Windows asset link");
+    assert!(!readme.contains("GoodNight-0.5.2-mac.dmg"), "no unpublished macOS asset link");
+    assert!(!readme.contains("GoodNight-0.5.2-windows-x64-setup.exe"), "no unpublished Windows asset link");
     assert!(!readme.contains("releases/download/v0.2.0/"), "no stale v0.2.0 asset links");
     assert!(readme.contains("releases/download/v0.5.0/GoodNight-0.5.0-mac.dmg"));
     assert!(readme.contains("releases/download/v0.5.0/GoodNight-0.5.0-windows-x64-setup.exe"));
@@ -214,7 +214,7 @@ fn download_links_are_published_and_windows_deviations_are_documented() {
     let docs = fs::read_to_string(root().join("docs/updates.md")).unwrap();
     assert!(docs.contains("**no Install-updates-automatically toggle**"));
     assert!(docs.contains("**no Remind Me Later and no Skip This Version buttons**"));
-    assert!(docs.contains("including 0.5.1"), "the Windows deviation stays tied to the branch version");
+    assert!(docs.contains("including 0.5.2"), "the Windows deviation stays tied to the branch version");
 }
 
 #[test]
@@ -242,12 +242,128 @@ fn branch_version_is_bumped_in_every_manifest() {
         "macos/Resources/Info.plist",
     ] {
         let text = fs::read_to_string(root().join(path)).unwrap();
-        assert!(text.contains("0.5.1"), "{path} must carry 0.5.1");
+        assert!(text.contains("0.5.2"), "{path} must carry 0.5.2");
         assert!(!text.contains("0.4.2"), "{path} must not carry the old branch version");
     }
     let plist = fs::read_to_string(root().join("macos/Resources/Info.plist")).unwrap();
     assert!(
-        plist.contains("<key>CFBundleVersion</key>\n\t<string>6</string>"),
+        plist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"),
         "the macOS build number must stay above published v0.5.0"
     );
+}
+
+/// The README's Privacy section, from its heading to the next one.
+fn readme_privacy_section() -> String {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let start = readme.find("\n## Privacy\n").expect("the README has a Privacy section");
+    let body = &readme[start + 1..];
+    let end = body.find("\n## ").expect("the Privacy section ends at the next heading");
+    body[..end].to_string()
+}
+
+#[test]
+fn readme_privacy_is_a_short_summary_that_links_the_full_disclosure() {
+    let section = readme_privacy_section();
+    let lines: Vec<&str> = section.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(
+        (4..=7).contains(&lines.len()),
+        "README Privacy must be the heading plus 3-6 short lines, found {} lines",
+        lines.len()
+    );
+    assert!(lines[0].starts_with("## Privacy"));
+    assert!(
+        section.contains("[PRIVACY.md](PRIVACY.md)"),
+        "the short form must link the full disclosure instead of carrying it"
+    );
+    for detail in ["update-check.json", "settings.json.tmp", "~/Library/Preferences", "GdiIcmGammaRange"] {
+        assert!(!section.contains(detail), "{detail} is detail for PRIVACY.md, not the README summary");
+    }
+}
+
+#[test]
+fn every_local_write_is_inventoried_with_a_lifetime() {
+    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    for required in [
+        "Lifetime",
+        // settings, both platforms
+        "~/Library/Preferences/com.libertydesignstudio.goodnight.plist",
+        r"%APPDATA%\com.libertydesignstudio.goodnight\settings.json",
+        // the Windows update-check record and the atomic-write temp files
+        r"%LOCALAPPDATA%\com.libertydesignstudio.goodnight\update-check.json",
+        "settings.json.tmp",
+        "update-check.json.tmp",
+        "1 hour",
+        "30 days",
+        // logs, install leftovers and the way out
+        "no log files",
+        "GdiIcmGammaRange",
+        "Start at login",
+        "defaults delete com.libertydesignstudio.goodnight",
+        "uninstall",
+    ] {
+        assert!(privacy.contains(required), "PRIVACY.md must document {required}");
+    }
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    assert!(readme.contains("[PRIVACY.md](PRIVACY.md)"), "the README must point at it");
+    let docs = fs::read_to_string(root().join("docs/updates.md")).unwrap();
+    assert!(docs.contains("[PRIVACY.md](../PRIVACY.md)"), "the update docs must point at it too");
+}
+
+#[test]
+fn retention_bounds_are_pure_documented_and_applied_at_launch() {
+    use goodnight_core::retention::{
+        disposition, Disposition, CHECK_RECORD_LIFETIME_SECS, SETTINGS_FILE_NAME, TEMP_LIFETIME_SECS,
+    };
+    let now = 1_800_000_000u64;
+    assert_eq!(TEMP_LIFETIME_SECS, 3_600, "PRIVACY.md promises one hour");
+    assert_eq!(CHECK_RECORD_LIFETIME_SECS, 30 * 24 * 3_600, "PRIVACY.md promises 30 days");
+    assert_eq!(disposition("settings.json.tmp", now - TEMP_LIFETIME_SECS, now), Disposition::Remove);
+    assert_eq!(disposition("update-check.json.tmp", now - 1, now), Disposition::Keep, "a live write");
+    assert_eq!(disposition("update-check.json", now - CHECK_RECORD_LIFETIME_SECS, now), Disposition::Remove);
+    assert_eq!(disposition("update-check.json", now - 3_600, now), Disposition::Keep);
+    assert_eq!(
+        disposition(SETTINGS_FILE_NAME, now - 10 * CHECK_RECORD_LIFETIME_SECS, now),
+        Disposition::Keep,
+        "settings are the user's data, not debris"
+    );
+    assert_eq!(disposition("installer-notes.txt", 0, now), Disposition::Keep, "only this app's files");
+
+    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    assert!(
+        privacy.contains("core/src/retention.rs") && privacy.contains("windows/src-tauri/src/housekeeping.rs"),
+        "PRIVACY.md must name the code that enforces the bounds"
+    );
+
+    let main = fs::read_to_string(root().join("windows/src-tauri/src/main.rs")).unwrap();
+    assert!(main.contains("mod housekeeping;"), "the shell must own the sweep");
+    assert_eq!(main.matches("housekeeping::sweep(").count(), 1, "one sweep, at startup");
+    let sweep = main.find("housekeeping::sweep(").unwrap();
+    let read = main.find("std::fs::read(&path)").expect("settings are read at startup");
+    assert!(sweep < read, "debris is cleared before the settings file is read");
+
+    let housekeeping = fs::read_to_string(root().join("windows/src-tauri/src/housekeeping.rs")).unwrap();
+    assert!(housekeeping.contains("goodnight_core::retention"), "the bounds are the shared policy");
+    for forbidden in ["check_due", "record_check", "check_update", "install_update"] {
+        assert!(
+            !housekeeping.contains(forbidden),
+            "housekeeping must not drive or duplicate the update check: {forbidden}"
+        );
+    }
+    // Only the (test-only) scratch cleanup may remove folders; the sweeper itself deletes files.
+    let shipping = housekeeping.split("#[cfg(test)]").next().unwrap();
+    assert!(!shipping.contains("remove_dir_all"), "the sweeper removes files, never folders");
+    assert!(shipping.contains("remove_file"), "and it does remove the expired ones");
+}
+
+#[test]
+fn uninstalling_leaves_no_install_leftovers() {
+    let nsh = fs::read_to_string(root().join("windows/src-tauri/installer-hooks.nsh")).unwrap();
+    let value = r#"HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM" "GdiIcmGammaRange""#;
+    assert!(nsh.contains("!macro NSIS_HOOK_PREUNINSTALL"), "the uninstaller must clean up");
+    assert!(nsh.contains(&format!(r#"WriteRegDWORD {value} 256"#)), "the install-side value");
+    assert!(nsh.contains(&format!(r#"ReadRegDWORD $0 {value}"#)), "read before deleting");
+    assert!(nsh.contains("IntCmp $0 256"), "only a value this installer wrote is removed");
+    assert!(nsh.contains(&format!("DeleteRegValue {value}")));
+    assert!(nsh.contains(r#"RMDir /r "$APPDATA\com.libertydesignstudio.goodnight""#));
+    assert!(nsh.contains(r#"RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight""#));
 }

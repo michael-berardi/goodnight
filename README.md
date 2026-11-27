@@ -20,7 +20,7 @@
 - **macOS 13 or later, Apple silicon and Intel:** [Download the published DMG](https://github.com/michael-berardi/goodnight/releases/download/v0.5.0/GoodNight-0.5.0-mac.dmg), open it, and drag Good Night to Applications.
 - **Windows 10 and 11, x64 (preview):** [Download the published installer](https://github.com/michael-berardi/goodnight/releases/download/v0.5.0/GoodNight-0.5.0-windows-x64-setup.exe) and run it. It requires administrator rights to enable the full colour range. The installer is not code-signed; only continue past SmartScreen if you trust the download.
 
-These are the assets attached to the latest published release, v0.5.0. This development branch is 0.5.1 and carries later, unpublished changes, so its version is not downloadable yet.
+These are the assets attached to the latest published release, v0.5.0. This development branch is 0.5.2 and carries later, unpublished changes, so its version is not downloadable yet.
 
 Release checksums are in `SHA256SUMS` on [Releases](https://github.com/michael-berardi/goodnight/releases/latest). Open Good Night, choose **Candle**, then adjust brightness. Turn on **Follow the Sun** to schedule warmth automatically.
 
@@ -68,13 +68,10 @@ Automatic checks are **on by default** in interactive use, including the hidden 
 
 ## Privacy
 
-The only network feature is the update check described above. It runs on interactive launches, in the background, and is disabled in CI, headless/print modes and when you opt out. There is no telemetry, analytics, crash reporting, account, install ID or machine fingerprint.
-
-A check is one HTTPS GET for the public signed feed on GitHub Releases; as with any web request, GitHub sees your IP address and transport headers. macOS sends the fixed `GoodNight-Update-Check/1.0` User-Agent and no system profile. No settings, warmth schedule, file contents, usage data or unique identifier is sent. A failed check is recorded locally with its cause, not sent anywhere.
-
-Settings are stored only on this machine: `~/Library/Preferences/com.libertydesignstudio.goodnight.plist` on macOS (UserDefaults) and `settings.json` in the app's config folder under your Windows user profile. They contain warmth, brightness, schedule, menu-bar/Dock visibility and the update preference only — no prompts, files, credentials or location. Windows also keeps `update-check.json` in the app cache with the last check time and any failure cause. Diagnostics go to the macOS unified log or the Windows console. The UI uses bundled assets and system fonts, with no third-party fonts or scripts.
-
-To delete everything the app saved: quit Good Night, then run `defaults delete com.libertydesignstudio.goodnight` on macOS, or delete the `settings.json` file and the `update-check.json` file (and the containing Good Night folders) on Windows. There are no user-configured cloud services or other third parties; GitHub is contacted only for the update check described here.
+- No account, no usage reporting, no ads, no crash reporting, no install ID and no machine fingerprint.
+- The only request is the anonymous daily update check above: no settings, prompts, files, location or identifier leave the machine. See [docs/updates.md](docs/updates.md).
+- Everything Good Night saves stays on this machine: your preferences, plus on Windows the last update-check time and a short-lived temp file. Nothing is uploaded.
+- Settings are kept until you delete them; the update-check record expires after 30 days and an abandoned temp file after one hour. Every path, lifetime and the one-step delete commands are in [PRIVACY.md](PRIVACY.md).
 
 ## Build from source
 

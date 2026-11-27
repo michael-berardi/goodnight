@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod gamma;
+mod housekeeping;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -590,6 +591,12 @@ fn main() {
         .setup(move |app| {
             let path = app.path().app_config_dir()?.join("settings.json");
             let cache_path = app.path().app_cache_dir()?.join("update-check.json");
+            // Bound the debris a crash can leave: an abandoned atomic-write `.tmp` goes after an
+            // hour, a check record goes after a month without a check. Settings stay until the
+            // user deletes them or uninstalls. Lifetimes and deletion are documented in PRIVACY.md.
+            for dir in [path.parent(), cache_path.parent()].into_iter().flatten() {
+                housekeeping::sweep(dir);
+            }
             let settings: Settings = std::fs::read(&path).ok().map(|b| load_settings(&b)).unwrap_or_default();
             let (time_zone, utc_offset_seconds) = system_zone();
             let core = Runtime::<GoodNight>::start(Config { settings, time_zone, utc_offset_seconds, fixed_now: None });

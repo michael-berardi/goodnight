@@ -2,6 +2,22 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-11-26
+
+### Changed
+
+- The README **Privacy** section is now a short summary that links the new [PRIVACY.md](PRIVACY.md), which carries the full disclosure: every file Good Night writes on each platform, what is in it, how long it lives and what removes it.
+
+### Added
+
+- Automatic retention bounds, so no local data is left behind as debris: an abandoned atomic-write `.tmp` file is swept at the next launch once it is an hour old, and the Windows update-check record is swept once it is 30 days old. Settings stay until you delete them or uninstall. The policy is pure and lives in `core/src/retention.rs`; the sweep lives in `windows/src-tauri/src/housekeeping.rs` and runs at startup, before anything reads those files.
+- Retention and privacy regression tests: the policy and the sweeper are covered by unit tests, and `core/tests/privacy.rs` fails if PRIVACY.md, the lifetimes and the sweep wiring drift apart or if the README section grows back into the full disclosure.
+- The Windows uninstaller now clears the install leftovers: the machine-wide `GdiIcmGammaRange` value, but only while it still holds the value the installer wrote, and the uninstalling profile's settings and cache folders.
+
+### Fixed
+
+- Patch version bumped to 0.5.2 in both Cargo manifests, the lockfiles, the Windows Tauri config and the macOS Info.plist (build 7); the README and `docs/updates.md` carry the same version.
+
 ## [0.5.1] - 2026-11-26
 
 ### Fixed
