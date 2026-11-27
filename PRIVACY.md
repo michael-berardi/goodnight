@@ -39,8 +39,9 @@ macOS may clear caches sooner. Both are ordinary public artifacts holding none o
 neither is a file Good Night writes or a place your settings are stored.
 
 The interface uses bundled assets and system fonts, with no third-party fonts, scripts or web
-services. GitHub is the only third party contacted, and only for the update check described in
-[docs/updates.md](docs/updates.md); there are no user-configured cloud services.
+services. GitHub is the only third party contacted, and only for update checks and update
+downloads described in [docs/updates.md](docs/updates.md); there are no user-configured cloud
+services.
 
 ## Deleting everything
 
