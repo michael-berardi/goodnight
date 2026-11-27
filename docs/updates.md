@@ -55,4 +55,5 @@ The update check is the app's only network feature. The local cache holds only t
 time and, if a check failed, its cause. Delete it with the app cache folder on Windows; on macOS
 Sparkle's schedule is part of the app's normal preferences and can be cleared with
 `defaults delete com.libertydesignstudio.goodnight`. See the README's **Privacy** section for the
-full list of what is stored and how to remove it.
+full list of what is stored and how to remove it. The README keeps this detailed disclosure rather
+than the contract's short form.
