@@ -97,8 +97,21 @@ impl State {
         (t.level, t.brightness)
     }
 
+    /// Applies an action and waits until the engine has handled it. Never call this from the UI
+    /// thread: the engine answers through `on_notice`, and `publish` needs the UI thread to carry
+    /// its tray update out, so a wait from the UI thread leaves both waiting on each other
+    /// forever. The commands are async and the renderer has its own thread for this reason.
     fn act(&self, action: Action) {
         if let Err(e) = self.core.dispatch_wait(action) {
+            eprintln!("goodnight: {e}");
+        }
+    }
+
+    /// Queues an action and returns at once, for callers on the UI thread (the tray menu and the
+    /// global shortcuts): waiting there is exactly what deadlocked it. Everything the change
+    /// needs afterwards arrives through the engine's notices.
+    fn send(&self, action: Action) {
+        if let Err(e) = self.core.dispatch(action) {
             eprintln!("goodnight: {e}");
         }
     }
@@ -178,13 +191,37 @@ fn view(app: &AppHandle) -> View {
     }
 }
 
+/// What the tray icon says about this state.
+fn tooltip(v: &View) -> String {
+    if v.enabled {
+        format!("Good Night · {}K · {}", v.kelvin, v.preset)
+    } else {
+        "Good Night · Off".into()
+    }
+}
+
 /// Tell the UI and the tray about the latest state.
+///
+/// This usually runs on the engine's own thread, inside a notice. `app.emit` only queues a script
+/// for the web view, but a tray call is carried out on the UI thread and waits for it to answer
+/// (Tauri's `run_item_main_thread`), and the UI thread can be inside `act` waiting for the engine:
+/// the two then wait on each other and Good Night stops responding (J-4889, Windows). So the
+/// tooltip is posted to the UI thread, never waited for; it shows the newest state by the time
+/// the UI thread gets to it.
 fn publish(app: &AppHandle) {
     let v = view(app);
     let _ = app.emit("state", &v);
-    if let Some(tray) = app.tray_by_id("main") {
-        let tip = if v.enabled { format!("Good Night · {}K · {}", v.kelvin, v.preset) } else { "Good Night · Off".into() };
-        let _ = tray.set_tooltip(Some(tip));
+    let tip = tooltip(&v);
+    let handle = app.clone();
+    let posted = app.run_on_main_thread(move || {
+        if let Some(tray) = handle.tray_by_id("main") {
+            if let Err(e) = tray.set_tooltip(Some(tip)) {
+                eprintln!("goodnight: cannot update the tray tooltip: {e}");
+            }
+        }
+    });
+    if let Err(e) = posted {
+        eprintln!("goodnight: cannot reach the UI thread: {e}");
     }
 }
 
@@ -228,23 +265,27 @@ fn warmth_curve() -> Curve {
     Curve { n: N, kelvin, tint }
 }
 
+// The setting commands are async so Tauri runs them off the UI thread: they wait for the engine,
+// and the engine's answer needs the UI thread (see `publish`). A sync command runs on the UI
+// thread on Windows, where that wait hung Good Night (J-4889).
+
 #[tauri::command]
-fn set_level(app: AppHandle, level: f64, animated: bool) {
+async fn set_level(app: AppHandle, level: f64, animated: bool) {
     app.state::<State>().act(Action::SetLevel { level, animated });
 }
 
 #[tauri::command]
-fn set_brightness(app: AppHandle, value: f64, animated: bool) {
+async fn set_brightness(app: AppHandle, value: f64, animated: bool) {
     app.state::<State>().act(Action::SetBrightness { value, animated });
 }
 
 #[tauri::command]
-fn set_enabled(app: AppHandle, on: bool) {
+async fn set_enabled(app: AppHandle, on: bool) {
     app.state::<State>().act(Action::SetEnabled { on });
 }
 
 #[tauri::command]
-fn set_follow_sun(app: AppHandle, on: bool) {
+async fn set_follow_sun(app: AppHandle, on: bool) {
     app.state::<State>().act(Action::SetFollowSun { on });
 }
 
@@ -257,7 +298,7 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_auto_update(app: AppHandle, on: bool) {
+async fn set_auto_update(app: AppHandle, on: bool) {
     let st = app.state::<State>();
     st.act(Action::SetAutoUpdate { on });
     if !on {
@@ -273,7 +314,7 @@ fn set_auto_update(app: AppHandle, on: bool) {
 }
 
 #[tauri::command]
-fn set_install_updates_automatically(app: AppHandle, on: bool) {
+async fn set_install_updates_automatically(app: AppHandle, on: bool) {
     let st = app.state::<State>();
     st.act(Action::SetInstallUpdatesAutomatically { on });
     if !on {
@@ -448,8 +489,9 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// Ctrl+Alt+Shift+Arrow arrives on the UI thread, so it only queues the nudge.
 fn nudge(app: &AppHandle, level: f64, brightness: f64) {
-    app.state::<State>().act(Action::Nudge { level, brightness });
+    app.state::<State>().send(Action::Nudge { level, brightness });
 }
 
 // MARK: Windows
@@ -712,7 +754,7 @@ fn main() {
                     "open" => show_main(app),
                     "toggle" => {
                         let on = app.state::<State>().core_state().enabled;
-                        set_enabled(app.clone(), !on);
+                        app.state::<State>().send(Action::SetEnabled { on: !on });
                     }
                     "quit" => quit(app.clone()),
                     _ => {}

@@ -224,17 +224,20 @@ fn docs_and_changelog_describe_the_v1_contract() {
     assert!(readme.contains("on by default"));
     let changelog = read("CHANGELOG.md");
     let first = changelog.find("\n## [").expect("a release section");
-    assert!(changelog[first..].starts_with("\n## [0.5.2] - 2026-11-27\n"), "one new entry, at the top");
+    assert!(changelog[first..].starts_with("\n## [0.5.3] - 2026-11-28\n"), "one new entry, at the top");
     let second = changelog[first + 1..].find("\n## [").map(|k| first + 1 + k).expect("earlier releases");
-    assert!(changelog[second..].starts_with("\n## [0.5.0] - "), "never-tagged versions are folded into 0.5.2");
-    assert_eq!(changelog.matches("## [0.5.2]").count(), 1);
+    assert!(
+        changelog[second..].starts_with("\n## [0.5.2] - 2026-11-27\n"),
+        "releases stay in order, newest first"
+    );
+    assert_eq!(changelog.matches("## [0.5.3]").count(), 1);
 }
 
 #[test]
 fn download_links_name_the_release_being_published() {
     let readme = read("README.md");
-    assert!(readme.contains("releases/latest/download/GoodNight-0.5.2-mac.dmg"));
-    assert!(readme.contains("releases/latest/download/GoodNight-0.5.2-windows-x64-setup.exe"));
+    assert!(readme.contains("releases/latest/download/GoodNight-0.5.3-mac.dmg"));
+    assert!(readme.contains("releases/latest/download/GoodNight-0.5.3-windows-x64-setup.exe"));
     for stale in ["GoodNight-0.5.0-", "GoodNight-0.2.0-", "releases/download/v0.", "unpublished", "not downloadable"] {
         assert!(!readme.contains(stale), "README must not carry {stale}");
     }
@@ -260,19 +263,19 @@ fn updater_feeds_use_the_published_latest_release_urls() {
 #[test]
 fn branch_version_is_bumped_in_every_manifest() {
     for (path, needle) in [
-        ("core/Cargo.toml", "\nversion = \"0.5.2\"\n"),
-        ("core/Cargo.lock", "name = \"goodnight-core\"\nversion = \"0.5.2\"\n"),
-        ("windows/src-tauri/Cargo.toml", "\nversion = \"0.5.2\"\n"),
-        ("windows/src-tauri/Cargo.lock", "name = \"goodnight\"\nversion = \"0.5.2\"\n"),
-        ("windows/src-tauri/Cargo.lock", "name = \"goodnight-core\"\nversion = \"0.5.2\"\n"),
-        ("windows/src-tauri/tauri.conf.json", "\"version\": \"0.5.2\""),
-        ("macos/Resources/Info.plist", "<key>CFBundleShortVersionString</key>\n\t<string>0.5.2</string>"),
+        ("core/Cargo.toml", "\nversion = \"0.5.3\"\n"),
+        ("core/Cargo.lock", "name = \"goodnight-core\"\nversion = \"0.5.3\"\n"),
+        ("windows/src-tauri/Cargo.toml", "\nversion = \"0.5.3\"\n"),
+        ("windows/src-tauri/Cargo.lock", "name = \"goodnight\"\nversion = \"0.5.3\"\n"),
+        ("windows/src-tauri/Cargo.lock", "name = \"goodnight-core\"\nversion = \"0.5.3\"\n"),
+        ("windows/src-tauri/tauri.conf.json", "\"version\": \"0.5.3\""),
+        ("macos/Resources/Info.plist", "<key>CFBundleShortVersionString</key>\n\t<string>0.5.3</string>"),
     ] {
-        assert!(read(path).contains(needle), "{path} must carry 0.5.2");
+        assert!(read(path).contains(needle), "{path} must carry 0.5.3");
     }
     let plist = read("macos/Resources/Info.plist");
     assert!(
-        plist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"),
+        plist.contains("<key>CFBundleVersion</key>\n\t<string>8</string>"),
         "the macOS build number must stay above published v0.5.0 (build 5)"
     );
 }
@@ -455,6 +458,34 @@ fn uninstall_cleanup_is_guarded_against_updates_and_uses_the_current_profile() {
         body[last_folder..].contains("!insertmacro SetContext"),
         "restore the perMachine context for the rest of the uninstall"
     );
+}
+
+/// Tauri's running-app check runs after our hook and stops only `goodnight.exe`, so a WebView2
+/// browser process keeps writing into the profile folders while they are removed. The hook must
+/// stop the whole process tree first, then wait for the folders to come free (J-4813, J-4889).
+#[test]
+fn uninstalling_while_running_stops_good_night_before_removing_its_data() {
+    let nsh = fs::read_to_string(root().join("windows/src-tauri/installer-hooks.nsh")).unwrap();
+    let macro_start = nsh.find("!macro NSIS_HOOK_PREUNINSTALL").expect("the pre-uninstall hook");
+    let after_macro = &nsh[macro_start..];
+    let body = &after_macro[..after_macro.find("!macroend").expect("the hook ends")];
+
+    let stop = body.find("taskkill.exe").expect("the hook must stop Good Night first");
+    let line = &body[stop..];
+    assert!(
+        line[..line.find('\n').unwrap_or(line.len())].contains("/T"),
+        "stop the WebView2 children too"
+    );
+    assert!(line.contains("${MAINBINARYNAME}.exe"), "stop the app the installer installed");
+    for deletion in [
+        body.find(r#"RMDir /r "$APPDATA\com.libertydesignstudio.goodnight""#).unwrap(),
+        body.find(r#"RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight""#).unwrap(),
+    ] {
+        assert!(stop < deletion, "stopping the app comes before removing its data");
+    }
+    assert!(body.contains("goodnight_data_retry"), "wait for a browser process that is still exiting");
+    assert!(body.contains("Sleep 250"), "the wait is bounded");
+    assert!(body.contains("RMDir /r /REBOOTOK"), "a folder still held is removed at the next start");
 }
 
 #[test]

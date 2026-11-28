@@ -2,6 +2,25 @@
 
 Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.3] - 2026-11-28
+
+### Fixed
+
+- On Windows, clicking any setting no longer freezes Good Night. The setting was applied to the
+  screen, then the interface stopped responding and `settings.json` was never written. Two halves
+  of the same wait were to blame: the click ran on the interface thread and waited there for the
+  settings engine, and the engine reported the new setting by updating the tray tooltip, which
+  Windows carries out on that same interface thread. Each waited for the other. The commands now
+  wait for the engine off the interface thread, and the tray tooltip is handed to the interface
+  thread instead of waited for. macOS never had this shape.
+- A Windows uninstall while Good Night is running now stops Good Night and the browser processes
+  behind its window before removing the app data, so an uninstall leaves no `%APPDATA%` or
+  `%LOCALAPPDATA%` folder behind. If a folder is still locked after five seconds, the next Windows
+  start removes what is left.
+- Regression tests hold both halves: `core/tests/shell_threads.rs` runs the real engine through the
+  shape that hung Windows and checks the Windows shell's command and tray signatures, and
+  `core/tests/privacy.rs` checks that the uninstaller stops the app before deleting its data.
+
 ## [0.5.2] - 2026-11-27
 
 ### Added

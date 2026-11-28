@@ -71,6 +71,8 @@ Delete files by hand only after quitting Good Night, so nothing is rewritten aft
   files, the gamma-range value (only if it still holds 256), your **Start with Windows** entry, the
   updater's folders in your `%TEMP%`, and your account's `%APPDATA%\com.libertydesignstudio.goodnight`
   and `%LOCALAPPDATA%\com.libertydesignstudio.goodnight` folders, with the settings, update cache,
-  log and WebView2 data. An in-app update does not remove them. Other Windows accounts that ran Good
+  log and WebView2 data. An uninstall while Good Night is running stops it and the browser
+  processes behind its window first, so those two folders go too. An in-app update does not remove
+  them. Other Windows accounts that ran Good
   Night keep their own two folders and login item; sign in as that user, turn off **Start with
   Windows** and delete the folders.

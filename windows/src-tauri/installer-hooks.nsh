@@ -20,8 +20,33 @@
     ; This installer is perMachine, so its shell context normally points at all users.
     ; Profile data belongs to the account running the uninstaller, not to that shared folder.
     SetShellVarContext current
-    RMDir /r "$APPDATA\com.libertydesignstudio.goodnight"
-    RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight"
+    ; Good Night is often still running: the app and its WebView2 child processes keep writing
+    ; into the folders below. Tauri's own running-app check runs after this hook and stops only
+    ; goodnight.exe, which leaves the WebView2 processes behind. Stop the whole tree first, then
+    ; wait for the folders to become removable. Silent uninstalls get this too, so nothing has to
+    ; be clicked.
+    ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM "${MAINBINARYNAME}.exe"'
+    Push $R1
+    Push $R2
+    StrCpy $R2 0
+    goodnight_data_retry:
+      IntOp $R2 $R2 + 1
+      RMDir /r "$APPDATA\com.libertydesignstudio.goodnight"
+      RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight"
+      ${IfNot} ${FileExists} "$APPDATA\com.libertydesignstudio.goodnight\*.*"
+      ${AndIfNot} ${FileExists} "$LOCALAPPDATA\com.libertydesignstudio.goodnight\*.*"
+        Goto goodnight_data_gone
+      ${EndIf}
+      ${If} $R2 < 20
+        Sleep 250
+        Goto goodnight_data_retry
+      ${EndIf}
+      ; Still held after five seconds: the next start removes whatever is left.
+      RMDir /r /REBOOTOK "$APPDATA\com.libertydesignstudio.goodnight"
+      RMDir /r /REBOOTOK "$LOCALAPPDATA\com.libertydesignstudio.goodnight"
+    goodnight_data_gone:
+    Pop $R2
+    Pop $R1
     ; Restore the installer's context for Tauri's own shortcut and registry cleanup.
     !insertmacro SetContext
   ${EndIf}
