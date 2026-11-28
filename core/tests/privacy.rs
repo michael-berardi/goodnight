@@ -470,22 +470,65 @@ fn uninstalling_while_running_stops_good_night_before_removing_its_data() {
     let after_macro = &nsh[macro_start..];
     let body = &after_macro[..after_macro.find("!macroend").expect("the hook ends")];
 
-    let stop = body.find("taskkill.exe").expect("the hook must stop Good Night first");
-    let line = &body[stop..];
+    // A user uninstall only: an in-app update kills the installer's own parent if the stop moves
+    // outside this guard (the installer runs as a child of goodnight.exe).
+    let inside = update_guard(body);
+    for line in ["--quit", "taskkill.exe"] {
+        assert!(
+            inside.contains(line),
+            "{line} must only run for a real uninstall, inside `$UpdateMode <> 1`"
+        );
+    }
+
+    let ask = inside
+        .find("--quit")
+        .expect("the hook must ask the running app to quit first: quitting restores the screen, a kill cannot");
+    let stop = inside.find("taskkill.exe").expect("the hook must stop Good Night first");
+    assert!(ask < stop, "asking the app to quit comes before the forced stop");
+    let line = &inside[stop..];
     assert!(
         line[..line.find('\n').unwrap_or(line.len())].contains("/T"),
         "stop the WebView2 children too"
     );
     assert!(line.contains("${MAINBINARYNAME}.exe"), "stop the app the installer installed");
     for deletion in [
-        body.find(r#"RMDir /r "$APPDATA\com.libertydesignstudio.goodnight""#).unwrap(),
-        body.find(r#"RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight""#).unwrap(),
+        inside.find(r#"RMDir /r "$APPDATA\com.libertydesignstudio.goodnight""#).unwrap(),
+        inside.find(r#"RMDir /r "$LOCALAPPDATA\com.libertydesignstudio.goodnight""#).unwrap(),
     ] {
         assert!(stop < deletion, "stopping the app comes before removing its data");
     }
-    assert!(body.contains("goodnight_data_retry"), "wait for a browser process that is still exiting");
-    assert!(body.contains("Sleep 250"), "the wait is bounded");
-    assert!(body.contains("RMDir /r /REBOOTOK"), "a folder still held is removed at the next start");
+    assert!(inside.contains("goodnight_data_retry"), "wait for a browser process that is still exiting");
+    assert!(inside.contains("Sleep 250"), "the wait is bounded");
+    assert!(inside.contains("RMDir /r /REBOOTOK"), "a folder still held is removed at the next start");
+}
+
+/// The text inside the first `${If} $UpdateMode <> 1` block, up to its matching `${EndIf}`.
+fn update_guard(body: &str) -> &str {
+    let open = body
+        .find("${If} $UpdateMode <> 1")
+        .expect("the hook guards itself against in-app updates");
+    let mut depth = 0usize;
+    let mut at = open;
+    while at < body.len() {
+        let next = body[at..]
+            .find("${If")
+            .map(|i| (at + i, true))
+            .into_iter()
+            .chain(body[at..].find("${EndIf}").map(|i| (at + i, false)))
+            .min()
+            .expect("the guard closes");
+        if next.1 {
+            depth += 1;
+            at = next.0 + "${If".len();
+        } else {
+            depth -= 1;
+            if depth == 0 {
+                return &body[open..next.0];
+            }
+            at = next.0 + "${EndIf}".len();
+        }
+    }
+    panic!("the guard is never closed");
 }
 
 #[test]

@@ -10,16 +10,18 @@ Changes are recorded in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   screen, then the interface stopped responding and `settings.json` was never written. Two halves
   of the same wait were to blame: the click ran on the interface thread and waited there for the
   settings engine, and the engine reported the new setting by updating the tray tooltip, which
-  Windows carries out on that same interface thread. Each waited for the other. The commands now
-  wait for the engine off the interface thread, and the tray tooltip is handed to the interface
-  thread instead of waited for. macOS never had this shape.
-- A Windows uninstall while Good Night is running now stops Good Night and the browser processes
-  behind its window before removing the app data, so an uninstall leaves no `%APPDATA%` or
-  `%LOCALAPPDATA%` folder behind. If a folder is still locked after five seconds, the next Windows
-  start removes what is left.
+  Windows carries out on that same interface thread. Each waited for the other. The setting commands
+  now hand their change to the engine and return at once, in the order the clicks arrived, and the
+  tray tooltip is handed to the interface thread instead of waited for. macOS never had this shape.
+- A Windows uninstall while Good Night is running now asks the app to quit, which restores the
+  screen's normal warmth, and stops the browser processes behind its window before removing the app
+  data, so an uninstall leaves no `%APPDATA%` or `%LOCALAPPDATA%` folder behind for the account that
+  ran it. A forced stop follows if the app does not quit within ten seconds. If a folder is still
+  locked after five seconds, the next Windows start removes what is left.
 - Regression tests hold both halves: `core/tests/shell_threads.rs` runs the real engine through the
-  shape that hung Windows and checks the Windows shell's command and tray signatures, and
-  `core/tests/privacy.rs` checks that the uninstaller stops the app before deleting its data.
+  shape that hung Windows, checks that no shell command waits for the engine, and checks the tray
+  hand-off, and `core/tests/privacy.rs` checks that the uninstaller asks the app to quit and stops
+  it before deleting its data, and only for a real uninstall.
 
 ## [0.5.2] - 2026-11-27
 

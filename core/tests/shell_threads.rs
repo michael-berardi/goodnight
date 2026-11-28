@@ -94,10 +94,13 @@ fn a_setting_change_finishes_while_the_ui_thread_is_waiting_for_the_engine() {
     // The UI thread's queue: tray work posted by the engine's callback.
     let (post, queued) = mpsc::channel::<Box<dyn FnOnce() + Send>>();
     let post = Mutex::new(post);
+    let shown = Arc::new(Mutex::new(Vec::<String>::new()));
+    let collect = shown.clone();
     core.subscribe(move |n| {
         let Notice::State(state) = n else { return };
         let state = state.to_string();
-        let work = Box::new(move || drop(state)) as Box<dyn FnOnce() + Send>;
+        let target = collect.clone();
+        let work = Box::new(move || target.lock().unwrap().push(state)) as Box<dyn FnOnce() + Send>;
         // Posting, never waiting: waiting here is the J-4889 deadlock.
         let _ = post.lock().unwrap().send(work);
     });
@@ -112,12 +115,12 @@ fn a_setting_change_finishes_while_the_ui_thread_is_waiting_for_the_engine() {
                 animated: false,
             })
             .is_ok();
-        let mut carried_out = 0;
+        let mut carried_out = Vec::new();
         while let Ok(work) = queued.try_recv() {
             work();
-            carried_out += 1;
+            carried_out.push(());
         }
-        let _ = done.send((changed, carried_out));
+        let _ = done.send((changed, carried_out.len()));
     });
     let (changed, carried_out) = finished.recv_timeout(Duration::from_secs(10)).expect(
         "the engine was still waiting for the UI thread after 10 s: that is the J-4889 deadlock",
@@ -128,13 +131,49 @@ fn a_setting_change_finishes_while_the_ui_thread_is_waiting_for_the_engine() {
         carried_out > 0,
         "the posted tray work runs once the UI thread is free"
     );
+    // The work the callback posted carries the new state, so the tray and the UI show it.
+    let shown = shown.lock().unwrap();
+    assert!(
+        shown.iter().any(|s| s.contains("\"level\":0.3")),
+        "a posted state carries the new level: {shown:?}"
+    );
 }
 
-/// A sync `#[tauri::command]` runs on the UI thread on Windows. Every command that waits for the
-/// engine must be async, so that wait happens on Tauri's async runtime instead.
+/// Every command in the shell queues its action; none of them waits for the engine.
+///
+/// A sync `#[tauri::command]` runs on the UI thread on Windows, and an async one runs on Tauri's
+/// async runtime. Either may queue, but a wait from either one is the J-4889 deadlock: the engine
+/// answers through `on_notice`, whose tray update needs the UI thread.
 #[test]
-fn windows_setting_commands_run_off_the_ui_thread() {
+fn no_shell_command_waits_for_the_engine() {
     let main = read("windows/src-tauri/src/main.rs");
+    let mut commands = 0;
+    let mut rest = main.as_str();
+    while let Some(at) = rest.find("#[tauri::command]") {
+        rest = &rest[at + "#[tauri::command]".len()..];
+        let end = rest.find("#[tauri::command]").unwrap_or(rest.len());
+        let whole = &rest[..end];
+        // Only the command's own body: an unindented closing brace ends the function.
+        let block = &whole[..whole.find("\n}\n").map(|i| i + 1).unwrap_or(whole.len())];
+        commands += 1;
+        let name = block
+            .split("fn ")
+            .nth(1)
+            .and_then(|s| s.split('(').next())
+            .unwrap_or("?")
+            .trim()
+            .to_string();
+        for forbidden in [".act(", "dispatch_wait"] {
+            assert!(
+                !block.contains(forbidden),
+                "the {name} command must not call {forbidden}: a command runs on the UI thread or on \
+                 the async runtime, and the engine's notice callback needs the UI thread to carry \
+                 out the tray update, so the two wait on each other (J-4889)"
+            );
+        }
+    }
+    assert!(commands >= 12, "the shell's commands are all scanned: {commands} found");
+    // The setting commands queue in arrival order, which is what the UI thread gives them.
     for command in [
         "set_level",
         "set_brightness",
@@ -143,11 +182,11 @@ fn windows_setting_commands_run_off_the_ui_thread() {
         "set_auto_update",
         "set_install_updates_automatically",
     ] {
-        let marker = format!("#[tauri::command]\nasync fn {command}(");
+        let marker = format!("fn {command}(");
+        let body = body(&main, &marker);
         assert!(
-            main.contains(&marker),
-            "{command} must stay an async command: a sync command runs on the UI thread and waits \
-             for the engine there, which is what hung Good Night (J-4889)"
+            body.contains("send(Action::"),
+            "{command} must queue its action with State::send"
         );
     }
     // The tray menu and the global shortcuts arrive on the UI thread: they may only queue.
@@ -185,16 +224,23 @@ fn windows_publish_posts_the_tray_tooltip_instead_of_waiting_for_it() {
         "the tooltip call must be inside the posted closure, not after it"
     );
     // Nothing else on the engine's callback path may touch the tray or wait for the UI thread.
-    let on_notice = body(&main, "fn on_notice(");
-    for forbidden in [
-        "set_tooltip",
-        "tray_by_id",
-        "run_item_main_thread",
-        "block_on",
-    ] {
-        assert!(
-            !on_notice.contains(forbidden),
-            "the engine's notice callback must not call {forbidden}: it runs on the engine's thread"
-        );
+    for name in ["fn on_notice(", "fn view("] {
+        let block = body(&main, name);
+        for forbidden in [
+            "set_tooltip",
+            "tray_by_id",
+            "run_item_main_thread",
+            "dispatch_wait",
+            ".act(",
+            "recv_timeout",
+            ".recv(",
+            "block_on",
+        ] {
+            assert!(
+                !block.contains(forbidden),
+                "{name} must not call {forbidden}: it runs on the engine's thread or the UI \
+                 thread and may not wait for the other one"
+            );
+        }
     }
 }

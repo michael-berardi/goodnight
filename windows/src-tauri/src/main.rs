@@ -98,9 +98,9 @@ impl State {
     }
 
     /// Applies an action and waits until the engine has handled it. Never call this from the UI
-    /// thread: the engine answers through `on_notice`, and `publish` needs the UI thread to carry
-    /// its tray update out, so a wait from the UI thread leaves both waiting on each other
-    /// forever. The commands are async and the renderer has its own thread for this reason.
+    /// thread: the engine answers through `on_notice`, and the shell hands its tray update to the
+    /// UI thread, so a wait from the UI thread leaves both waiting on each other forever (J-4889).
+    /// Only the renderer's own thread waits; every command and the tray queue with `send`.
     fn act(&self, action: Action) {
         if let Err(e) = self.core.dispatch_wait(action) {
             eprintln!("goodnight: {e}");
@@ -269,24 +269,27 @@ fn warmth_curve() -> Curve {
 // and the engine's answer needs the UI thread (see `publish`). A sync command runs on the UI
 // thread on Windows, where that wait hung Good Night (J-4889).
 
+// The setting commands run on the UI thread (a sync command does) and only queue their action:
+// queueing keeps the order the clicks arrived in, and never waiting keeps the UI thread free for
+// the tray update the engine posts back. The UI takes its new state from the `state` event.
 #[tauri::command]
-async fn set_level(app: AppHandle, level: f64, animated: bool) {
-    app.state::<State>().act(Action::SetLevel { level, animated });
+fn set_level(app: AppHandle, level: f64, animated: bool) {
+    app.state::<State>().send(Action::SetLevel { level, animated });
 }
 
 #[tauri::command]
-async fn set_brightness(app: AppHandle, value: f64, animated: bool) {
-    app.state::<State>().act(Action::SetBrightness { value, animated });
+fn set_brightness(app: AppHandle, value: f64, animated: bool) {
+    app.state::<State>().send(Action::SetBrightness { value, animated });
 }
 
 #[tauri::command]
-async fn set_enabled(app: AppHandle, on: bool) {
-    app.state::<State>().act(Action::SetEnabled { on });
+fn set_enabled(app: AppHandle, on: bool) {
+    app.state::<State>().send(Action::SetEnabled { on });
 }
 
 #[tauri::command]
-async fn set_follow_sun(app: AppHandle, on: bool) {
-    app.state::<State>().act(Action::SetFollowSun { on });
+fn set_follow_sun(app: AppHandle, on: bool) {
+    app.state::<State>().send(Action::SetFollowSun { on });
 }
 
 #[tauri::command]
@@ -298,9 +301,9 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn set_auto_update(app: AppHandle, on: bool) {
+fn set_auto_update(app: AppHandle, on: bool) {
     let st = app.state::<State>();
-    st.act(Action::SetAutoUpdate { on });
+    st.send(Action::SetAutoUpdate { on });
     if !on {
         // No checks, no update state on disk. The NSIS uninstaller removes the same files.
         if let Some(dir) = st.path.parent() {
@@ -314,9 +317,9 @@ async fn set_auto_update(app: AppHandle, on: bool) {
 }
 
 #[tauri::command]
-async fn set_install_updates_automatically(app: AppHandle, on: bool) {
+fn set_install_updates_automatically(app: AppHandle, on: bool) {
     let st = app.state::<State>();
-    st.act(Action::SetInstallUpdatesAutomatically { on });
+    st.send(Action::SetInstallUpdatesAutomatically { on });
     if !on {
         *st.pending.lock().unwrap() = None;
     }
@@ -658,7 +661,15 @@ fn main() {
     let mut rx = Some(rx);
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            // The uninstaller starts a second instance with `--quit` so the running app restores
+            // the screen on its way out; a forced kill could not.
+            if args.iter().any(|a| a == "--quit") {
+                quit(app.clone());
+            } else {
+                show_main(app);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .plugin(
@@ -683,6 +694,12 @@ fn main() {
             open_main, quit, warmth_curve
         ])
         .setup(move |app| {
+            // Started only to ask the running app to stop (the uninstaller does this). Nothing was
+            // applied yet, so there is no screen to restore.
+            if std::env::args_os().any(|a| a == "--quit") {
+                app.handle().exit(0);
+                return Ok(());
+            }
             let dir = app.path().app_config_dir()?;
             let path = dir.join("settings.json");
             // Clear expired debris before anything reads a file: an abandoned updates.json.tmp

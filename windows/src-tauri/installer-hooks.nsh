@@ -25,8 +25,14 @@
     ; goodnight.exe, which leaves the WebView2 processes behind. Stop the whole tree first, then
     ; wait for the folders to become removable. Silent uninstalls get this too, so nothing has to
     ; be clicked.
-    ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM "${MAINBINARYNAME}.exe"'
-    Push $R1
+    ; The app is asked to quit first, because quitting restores the screen to its normal warmth and
+    ; a forced kill cannot: it would leave the desktop tinted until the next sign-in. The bounded
+    ; kill below is the fallback for an app that is stuck or was started by another user.
+    nsExec::Exec /TIMEOUT=10000 '"$INSTDIR\${MAINBINARYNAME}.exe" --quit'
+    Pop $0
+    Sleep 2000
+    nsExec::Exec /TIMEOUT=20000 '"$SYSDIR\taskkill.exe" /F /T /IM "${MAINBINARYNAME}.exe"'
+    Pop $0
     Push $R2
     StrCpy $R2 0
     goodnight_data_retry:
@@ -46,7 +52,6 @@
       RMDir /r /REBOOTOK "$LOCALAPPDATA\com.libertydesignstudio.goodnight"
     goodnight_data_gone:
     Pop $R2
-    Pop $R1
     ; Restore the installer's context for Tauri's own shortcut and registry cleanup.
     !insertmacro SetContext
   ${EndIf}
